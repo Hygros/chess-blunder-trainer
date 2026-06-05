@@ -23,7 +23,7 @@ DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
 MAX_RESPONSE_CHARS = 1200
 
 # Bump this when the coach prompt/output contract changes materially.
-LLM_EXPLANATION_VERSION = 8
+LLM_EXPLANATION_VERSION = 9
 
 # In-process cache: keyed by (fen, blunder_uci, model, prompt hash).
 # Cleared only on process restart. Phase C (llm_explanation DB column)
@@ -54,7 +54,7 @@ PIECE_NEAR_SQUARE_RE = re.compile(
     re.IGNORECASE,
 )
 FORCED_KING_MOVE_RE = re.compile(
-    r"\b(forcing|forces|forced)\s+(the\s+)?king\s+to\s+move\b",
+    r"\b(forcing|forces|forced)\s+(?:the\s+)?(?:(?:opponent|player|your|their)(?:'s|s)?\s+)?king\s+to\s+move\b",
     re.IGNORECASE,
 )
 

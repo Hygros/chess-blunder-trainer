@@ -110,7 +110,12 @@ def test_piece_square_claim_detects_conflict() -> None:
 
 def test_forced_king_move_claim_detects_missing_evidence() -> None:
     assert lesson._has_unsupported_forced_king_move_claim(
-        "Qxg5 wins material, forcing the king to move.",
+        "Qxg5 wins material and forces the player's king to move.",
+        best_line=["Qd2", "Nbd7", "f4"],
+        refutation_line_san=["Qxg5", "Nf3", "Qa5", "e5"],
+    )
+    assert lesson._has_unsupported_forced_king_move_claim(
+        "Qxg5 wins material and forces players king to move.",
         best_line=["Qd2", "Nbd7", "f4"],
         refutation_line_san=["Qxg5", "Nf3", "Qa5", "e5"],
     )
@@ -271,7 +276,7 @@ def test_explain_training_lesson_retries_on_unsupported_forced_king_claim(
                 "When you see a loose piece, check forcing captures first."
             )
         return (
-            "Qxg5 wins material, forcing the king to move immediately. "
+            "Qxg5 wins material and forces the player's king to move immediately. "
             "When you see a loose piece, check forcing captures first."
         )
 
@@ -283,4 +288,4 @@ def test_explain_training_lesson_retries_on_unsupported_forced_king_claim(
     text = lesson.explain_training_lesson(**args)
 
     assert text is not None
-    assert "forcing the king to move" not in text.lower()
+    assert "king to move" not in text.lower()
