@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import os
 from dataclasses import dataclass
 from datetime import date
 from functools import partial
@@ -11,15 +14,13 @@ from blunder_tutor.analysis.tactics import PATTERN_LABELS
 from blunder_tutor.cache.scope import user_scope
 from blunder_tutor.constants import PHASE_FROM_STRING, PHASE_LABELS
 from blunder_tutor.events.event_types import TrainingEvent
+from blunder_tutor.services.llm_explanation import (
+    LLM_EXPLANATION_VERSION,
+    explain_training_lesson,
+)
 from blunder_tutor.trainer import BlunderFilter
 from blunder_tutor.utils.chess_utils import format_eval
 from blunder_tutor.utils.explanation import generate_explanation, resolve_explanation
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from blunder_tutor.services.analysis_service import AnalysisService
-    from blunder_tutor.services.puzzle_service import PuzzleWithAnalysis
 from blunder_tutor.web.api import _analysis_schemas as schemas
 from blunder_tutor.web.api.schemas import ErrorResponse
 from blunder_tutor.web.dependencies import (
@@ -31,6 +32,12 @@ from blunder_tutor.web.dependencies import (
     SettingsRepoDep,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from blunder_tutor.services.analysis_service import AnalysisService
+    from blunder_tutor.services.puzzle_service import PuzzleWithAnalysis
+
 
 @dataclass(frozen=True)
 class _PuzzleFilters:
@@ -41,6 +48,32 @@ class _PuzzleFilters:
     game_types: list[int] | None
     player_colors: list[int] | None
     difficulty_ranges: list[tuple[int, int]] | None
+
+
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() in {"1", "true", "yes", "on"}
+
+
+def _as_optional_str_list(value: object) -> list[str] | None:
+    if value is None:
+        return None
+
+    if isinstance(value, list):
+        return [str(item) for item in value]
+
+    if isinstance(value, str):
+        if not value:
+            return None
+
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return value.split()
+
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+
+    return None
 
 
 def _puzzle_filters(
@@ -124,7 +157,7 @@ def _resolve_translator(request: Request) -> Callable[..., str]:
     return partial(i18n.t, getattr(request.state, "locale", "en"))
 
 
-def _build_puzzle_response(
+async def _build_puzzle_response(
     puzzle_with_analysis: PuzzleWithAnalysis, request: Request
 ) -> dict[str, Any]:
     puzzle_data = puzzle_with_analysis.puzzle
@@ -135,6 +168,27 @@ def _build_puzzle_response(
         if puzzle_data.tactical_pattern is not None
         else None
     )
+    phase_label = (
+        PHASE_LABELS.get(puzzle_data.game_phase)
+        if puzzle_data.game_phase is not None
+        else None
+    )
+
+    refutation_line = _as_optional_str_list(
+        getattr(puzzle_data, "refutation_line", None)
+    )
+    refutation_line_san = _as_optional_str_list(
+        getattr(puzzle_data, "refutation_line_san", None)
+    )
+    refutation_eval = getattr(puzzle_data, "refutation_eval", None)
+
+    eval_before_display = format_eval(
+        puzzle_data.eval_before, puzzle_data.player_color
+    )
+    eval_after_display = format_eval(
+        puzzle_data.eval_after, puzzle_data.player_color
+    )
+
     explanation_raw = generate_explanation(
         fen=puzzle_data.fen,
         blunder_uci=puzzle_data.blunder_uci,
@@ -142,13 +196,51 @@ def _build_puzzle_response(
         tactical_pattern=pattern_label,
         cp_loss=puzzle_data.cp_loss,
         best_line=analysis.best_line,
+        refutation_line=refutation_line_san,
     )
     explanation = resolve_explanation(explanation_raw, _resolve_translator(request))
-    phase_label = (
-        PHASE_LABELS.get(puzzle_data.game_phase)
-        if puzzle_data.game_phase is not None
-        else None
-    )
+
+    stored_explanation = getattr(puzzle_data, "llm_explanation", None)
+    stored_version = getattr(puzzle_data, "llm_explanation_version", None)
+    try:
+        stored_version_int = (
+            int(stored_version) if stored_version is not None else None
+        )
+    except (TypeError, ValueError):
+        stored_version_int = None
+
+    if (
+        stored_explanation
+        and stored_version_int == LLM_EXPLANATION_VERSION
+    ):
+        llm_text: str | None = stored_explanation
+    else:
+        reference_texts = [
+            explanation.consequence_text or explanation.blunder_text,
+            explanation.refutation_text,
+            explanation.comparison_text or explanation.best_move_text,
+        ]
+        llm_text = await asyncio.get_running_loop().run_in_executor(
+            None,
+            partial(
+                explain_training_lesson,
+                fen=puzzle_data.fen,
+                player_color=puzzle_data.player_color,
+                blunder_san=puzzle_data.blunder_san,
+                blunder_uci=puzzle_data.blunder_uci,
+                best_move_san=analysis.best_move_san,
+                best_move_uci=analysis.best_move_uci,
+                eval_before_display=eval_before_display,
+                eval_after_display=eval_after_display,
+                cp_loss=puzzle_data.cp_loss,
+                game_phase=phase_label,
+                tactical_pattern=pattern_label,
+                tactical_reason=puzzle_data.tactical_reason,
+                best_line=analysis.best_line,
+                refutation_line_san=refutation_line_san,
+                reference_texts=[text for text in reference_texts if text],
+            ),
+        )
 
     return {
         "game_id": puzzle_data.game_id,
@@ -160,12 +252,8 @@ def _build_puzzle_response(
         "eval_before": puzzle_data.eval_before,
         "eval_after": puzzle_data.eval_after,
         "cp_loss": puzzle_data.cp_loss,
-        "eval_before_display": format_eval(
-            puzzle_data.eval_before, puzzle_data.player_color
-        ),
-        "eval_after_display": format_eval(
-            puzzle_data.eval_after, puzzle_data.player_color
-        ),
+        "eval_before_display": eval_before_display,
+        "eval_after_display": eval_after_display,
         "best_move_uci": analysis.best_move_uci or "",
         "best_move_san": analysis.best_move_san or "",
         "best_line": analysis.best_line or [],
@@ -177,6 +265,13 @@ def _build_puzzle_response(
         "game_url": puzzle_data.game_url,
         "explanation_blunder": explanation.blunder_text or None,
         "explanation_best": explanation.best_move_text or None,
+        "explanation_consequence": explanation.consequence_text or None,
+        "explanation_refutation": explanation.refutation_text or None,
+        "explanation_comparison": explanation.comparison_text or None,
+        "explanation_llm": llm_text or explanation.llm_text or None,
+        "refutation_line": refutation_line,
+        "refutation_line_san": refutation_line_san,
+        "refutation_eval": refutation_eval,
         "pre_move_uci": puzzle_data.pre_move_uci,
         "pre_move_fen": puzzle_data.pre_move_fen,
     }
@@ -190,8 +285,10 @@ async def _resolve_user_eval_cp(
 ) -> int:
     if is_blunder:
         return payload.eval_after
+
     if is_best and payload.best_move_eval is not None:
         return payload.best_move_eval
+
     try:
         user_eval = await analysis_service.evaluate_move(
             payload.fen, payload.move, payload.player_color
@@ -200,6 +297,7 @@ async def _resolve_user_eval_cp(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
+
     return user_eval.eval_cp
 
 
@@ -238,7 +336,7 @@ async def puzzle(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
-    return _build_puzzle_response(puzzle_with_analysis, request)
+    return await _build_puzzle_response(puzzle_with_analysis, request)
 
 
 @analysis_router.get(
@@ -262,7 +360,7 @@ async def specific_puzzle(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
-    return _build_puzzle_response(puzzle_with_analysis, request)
+    return await _build_puzzle_response(puzzle_with_analysis, request)
 
 
 @analysis_router.post(
@@ -291,6 +389,7 @@ async def submit(
 
     is_best = bool(payload.best_move_uci and payload.move == payload.best_move_uci)
     is_blunder = payload.move == payload.blunder_uci
+
     user_eval_cp = await _resolve_user_eval_cp(
         payload, is_best, is_blunder, analysis_service
     )

@@ -139,15 +139,15 @@ function EvalBar({ moves, activeIndex, liveCp }: EvalBarProps) {
   useEffect(() => {
     if (!fillRef.current || !valueRef.current) return;
     if (liveCp != null) {
-      updateEvalBar(liveCp, 'white', fillRef.current, valueRef.current);
+      updateEvalBar(liveCp, fillRef.current, valueRef.current);
       return;
     }
     if (moves.length > 0 && activeIndex >= 0 && activeIndex < moves.length) {
       const move = moves[activeIndex];
       if (!move) return;
-      updateEvalBar(evalFromWhite(move), 'white', fillRef.current, valueRef.current);
+      updateEvalBar(evalFromWhite(move), fillRef.current, valueRef.current);
     } else {
-      updateEvalBar(0, 'white', fillRef.current, valueRef.current);
+      updateEvalBar(0, fillRef.current, valueRef.current);
     }
   }, [moves, activeIndex, liveCp]);
 

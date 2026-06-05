@@ -15,6 +15,7 @@ export const STORAGE_KEYS = {
   trainerShowThreats: 'blunder-tutor-show-threats',
   trainerShowTactics: 'blunder-tutor-show-tactics',
   trainerResultCardPos: 'blunder-tutor-result-card-pos',
+  trainerResultCardSize: 'blunder-tutor-result-card-size',
 
   // Dashboard filters
   dashboardDate: 'dashboard-date-filter',

@@ -75,6 +75,11 @@ class BlunderPuzzle:
     game_url: str | None = None
     pre_move_uci: str | None = None
     pre_move_fen: str | None = None
+    refutation_line: list[str] | None = None
+    refutation_line_san: list[str] | None = None
+    refutation_eval: int | None = None
+    llm_explanation: str | None = None
+    llm_explanation_version: int | None = None
 
 
 class Trainer:
@@ -232,6 +237,11 @@ class Trainer:
             game_url=extract_game_url(game),
             pre_move_uci=pre_move_uci,
             pre_move_fen=pre_move_fen,
+            refutation_line=blunder.get("refutation_line"),
+            refutation_line_san=blunder.get("refutation_line_san"),
+            refutation_eval=blunder.get("refutation_eval"),
+            llm_explanation=blunder.get("llm_explanation"),
+            llm_explanation_version=blunder.get("llm_explanation_version"),
         )
 
 

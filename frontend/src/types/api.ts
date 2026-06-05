@@ -94,6 +94,13 @@ export interface PuzzleData {
   pre_move_uci: string | null;
   pre_move_fen: string | null;
   best_move_eval: number | null;
+  refutation_line: string[] | null;
+  refutation_line_san: string[] | null;
+  refutation_eval: number | null;
+  explanation_consequence: string | null;
+  explanation_refutation: string | null;
+  explanation_comparison: string | null;
+  explanation_llm: string | null;
 }
 
 export interface SubmitMovePayload {

@@ -39,6 +39,8 @@
   display: flex;
   flex-direction: column;
   align-self: stretch;
+  position: relative;
+  z-index: 10;
 }
 
 
@@ -265,13 +267,13 @@
 /* Board result card — floating draggable panel */
 .board-result-card {
   display: none;
-  position: absolute;
-  z-index: 10;
+  position: fixed;
+  z-index: 100;
   bottom: var(--s-md);
   right: var(--s-md);
-  max-width: 340px;
-  width: 85%;
-  max-height: 80%;
+  width: 340px;
+  min-width: 220px;
+  min-height: 120px;
 }
 
 .board-result-card.visible {
@@ -371,8 +373,9 @@
 
 .board-result-best {
   display: flex;
-  align-items: baseline;
-  gap: var(--s-md);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-xs);
   margin-bottom: var(--s-sm);
 }
 
@@ -387,6 +390,164 @@
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   color: var(--dark-gray);
+}
+
+/* Line sections with navigation buttons */
+.board-result-line-section {
+  border-top: 1px solid var(--warm-gray);
+  padding-top: var(--s-sm);
+  margin-top: var(--s-sm);
+  margin-bottom: var(--s-sm);
+}
+
+.board-result-line-section:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.line-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--s-xs);
+}
+
+.line-section-label {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: var(--text-xs);
+  letter-spacing: var(--ls-normal);
+  text-transform: uppercase;
+}
+
+.line-section-label--best {
+  color: var(--correct);
+}
+
+.line-section-label--refutation {
+  color: var(--blunder, #e03c3c);
+}
+
+.line-nav-buttons {
+  display: flex;
+  gap: var(--s-xs);
+}
+
+.line-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: var(--text-sm);
+  background: var(--off-white, #f5f5f5);
+  border: 1px solid var(--warm-gray);
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  user-select: none;
+}
+
+.line-nav-btn:hover:not(:disabled) {
+  background: var(--warm-gray);
+  border-color: var(--dark-gray);
+}
+
+.line-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.line-moves-display {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.line-move-span {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--correct);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 4px);
+  transition: background 0.12s, color 0.12s;
+}
+
+.line-move-span.active {
+  background: var(--correct);
+  color: #fff;
+}
+
+.line-move-span.refutation {
+  color: var(--blunder, #e03c3c);
+}
+
+.line-move-span.refutation.active {
+  background: var(--blunder, #e03c3c);
+  color: #fff;
+}
+
+/* Board drag handle */
+.board-drag-handle {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  cursor: grab;
+  font-size: var(--text-base);
+  color: var(--mid-gray);
+  padding: 2px 12px;
+  border-radius: 4px;
+  background: var(--off-white, #f5f5f5);
+  border: 1px solid var(--warm-gray);
+  user-select: none;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.board-drag-handle:hover {
+  opacity: 1;
+  color: var(--black);
+}
+
+.board-drag-handle:active {
+  cursor: grabbing;
+}
+
+.trainer-board-area {
+  position: relative;
+  will-change: transform;
+}
+
+.trainer-board-area.dragging {
+  user-select: none;
+  cursor: grabbing;
+}
+
+.board-eval-wrapper {
+  position: relative;
+}
+
+/* Result card resize handle — hidden, using native CSS resize instead */
+.board-result-resize-handle {
+  display: none;
+}
+
+/* Override result card for resize and overflow */
+.board-result-card {
+  overflow: visible;
+}
+
+.board-result-card .board-result-inner {
+  resize: both;
+  overflow: auto;
+  min-width: 220px;
+  min-height: 120px;
+  max-height: calc(90vh - 40px);
 }
 
 .board-result-action {
@@ -452,6 +613,10 @@
   text-transform: uppercase;
   color: var(--blue);
   margin-bottom: var(--s-xs);
+}
+
+#explanationLlm {
+  white-space: pre-line;
 }
 
 /* Pending move card */
@@ -1038,6 +1203,48 @@
   border-radius: 0;
   padding: var(--s-sm);
   margin-top: var(--s-sm);
+}
+
+/* ==========================================================================
+   Continue Play
+   ========================================================================== */
+
+.board-result-continue-section {
+  margin-top: var(--s-sm);
+  border-top: 1px solid var(--warm-gray);
+  padding-top: var(--s-sm);
+}
+
+.continue-play-buttons {
+  display: flex;
+  gap: var(--s-xs);
+}
+
+.btn-continue {
+  flex: 1;
+  font-size: var(--text-sm);
+}
+
+.continue-play-active {
+  display: flex;
+  align-items: center;
+  gap: var(--s-sm);
+  flex-wrap: wrap;
+}
+
+.continue-play-label {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.continue-play-nav {
+  display: flex;
+  gap: var(--s-xs);
+}
+
+.btn-continue--stop {
+  margin-left: auto;
 }
 
 /* ==========================================================================

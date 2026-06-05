@@ -7,7 +7,9 @@ import { usePuzzle } from './hooks/usePuzzle';
 import { useBoardState } from './hooks/useBoardState';
 import { useBoardSettings } from './hooks/useBoardSettings';
 import { useLinePlayer } from './hooks/useLinePlayer';
+import { useContinuePlay } from './hooks/useContinuePlay';
 import { useKeyboard } from './hooks/useKeyboard';
+import { playerPovToWhitePov } from '../shared/eval-bar';
 import { EvalBar } from './components/EvalBar';
 import { Board } from './components/Board';
 import { VimInput } from './components/VimInput';
@@ -37,9 +39,111 @@ function TrainerCore(): preact.JSX.Element {
   const [userMoveUci, setUserMoveUci] = useState<string | null>(null);
   const [feedbackTitle, setFeedbackTitle] = useState('');
   const [feedbackDetail, setFeedbackDetail] = useState('');
+  const [redoStack, setRedoStack] = useState<string[]>([]);
   const gameRef = useRef<ChessInstance | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPuzzleIdRef = useRef<string | null>(null);
+
+  // Board drag state — uses native events for reliable pointer capture
+  const BOARD_OFFSET_KEY = 'blunder-tutor-board-offset';
+  const boardAreaRef = useRef<HTMLDivElement>(null);
+  const boardDragHandleRef = useRef<HTMLDivElement>(null);
+  const boardDragging = useRef(false);
+  const boardDragStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
+
+  // The board area is only rendered when puzzle is loaded (no emptyState/error).
+  // Effects with [] deps would miss the refs because the first render is a loading shell.
+  // Use this flag so effects re-run once the board DOM is actually mounted.
+  const boardVisible = !state.emptyState && !state.error && !!state.puzzle;
+
+  // Restore persisted board offset when board mounts
+  useEffect(() => {
+    if (!boardVisible) return;
+    const area = boardAreaRef.current;
+    if (!area) return;
+    try {
+      const saved = localStorage.getItem(BOARD_OFFSET_KEY);
+      if (saved) {
+        const { tx, ty } = JSON.parse(saved) as { tx: number; ty: number };
+        if (tx !== 0 || ty !== 0) {
+          area.style.transform = `translate(${String(tx)}px, ${String(ty)}px)`;
+          // Invalidate Chessground bounds cache so piece interactions use correct position
+          document.dispatchEvent(new Event('scroll'));
+        }
+      }
+    } catch { /* ignore corrupt storage */ }
+  }, [boardVisible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!boardVisible) return;
+    const handle = boardDragHandleRef.current;
+    const area = boardAreaRef.current;
+    if (!handle || !area) return;
+
+    const applyOffset = (tx: number, ty: number) => {
+      area.style.transform = `translate(${String(tx)}px, ${String(ty)}px)`;
+      // Invalidate Chessground bounds cache so piece interactions use correct position
+      document.dispatchEvent(new Event('scroll'));
+    };
+
+    const persistOffset = (tx: number, ty: number) => {
+      try { localStorage.setItem(BOARD_OFFSET_KEY, JSON.stringify({ tx, ty })); } catch { /* quota */ }
+    };
+
+    const onDown = (e: PointerEvent) => {
+      e.preventDefault();
+      boardDragging.current = true;
+      area.classList.add('dragging');
+      const style = getComputedStyle(area);
+      const tf = style.transform;
+      const matrix = tf && tf !== 'none' ? new DOMMatrix(tf) : new DOMMatrix();
+      boardDragStart.current = {
+        x: e.clientX, y: e.clientY,
+        tx: matrix.m41, ty: matrix.m42,
+      };
+      handle.setPointerCapture(e.pointerId);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!boardDragging.current) return;
+      const s = boardDragStart.current;
+      const tx = s.tx + (e.clientX - s.x);
+      const ty = s.ty + (e.clientY - s.y);
+      applyOffset(tx, ty);
+    };
+
+    const onUp = () => {
+      if (!boardDragging.current) return;
+      boardDragging.current = false;
+      area.classList.remove('dragging');
+      // Persist final position
+      const style = getComputedStyle(area);
+      const tf = style.transform;
+      const matrix = tf && tf !== 'none' ? new DOMMatrix(tf) : new DOMMatrix();
+      persistOffset(matrix.m41, matrix.m42);
+    };
+
+    // Double-click handle to reset board position
+    const onDblClick = () => {
+      area.style.transform = '';
+      persistOffset(0, 0);
+      document.dispatchEvent(new Event('scroll'));
+    };
+
+    handle.addEventListener('pointerdown', onDown);
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('lostpointercapture', onUp);
+    handle.addEventListener('dblclick', onDblClick);
+
+    return () => {
+      handle.removeEventListener('pointerdown', onDown);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('lostpointercapture', onUp);
+      handle.removeEventListener('dblclick', onDblClick);
+    };
+  }, [boardVisible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasPreMove = useFeature('trainer.pre_move');
 
@@ -65,7 +169,10 @@ function TrainerCore(): preact.JSX.Element {
   filtersRef.current = filtersApi;
 
   // Line player
-  const { playBestMove, navigateLine } = useLinePlayer(gameRef);
+  const { playBestMove, navigateLine, navigateLineTyped } = useLinePlayer(gameRef);
+
+  // Continue-play (vs engine / vs self)
+  const { startContinuePlay, stopContinuePlay, handleContinueMove, refreshEval, engineEvalCp } = useContinuePlay(gameRef);
 
   // WebSocket for stats updates
   const ws = useWebSocket(['stats.updated']);
@@ -162,6 +269,8 @@ function TrainerCore(): preact.JSX.Element {
 
     if (state.bestRevealed) {
       dispatch({ type: 'PUSH_MOVE', san: move.san });
+      setRedoStack([]);
+      handleContinueMove();
     } else if (!state.submitted) {
       const puzzle = state.puzzle;
       const uci = move.from + move.to + (move.promotion || '');
@@ -169,7 +278,7 @@ function TrainerCore(): preact.JSX.Element {
         setTimeout(() => { void handleSubmitRef.current(); }, 150);
       }
     }
-  }, [state.animating, state.bestRevealed, state.submitted, state.puzzle, dispatch]);
+  }, [state.animating, state.bestRevealed, state.submitted, state.puzzle, dispatch, handleContinueMove]);
 
   // Reveal best move
   const handleReveal = useCallback(() => {
@@ -188,23 +297,56 @@ function TrainerCore(): preact.JSX.Element {
     if (state.animating) return;
     const puzzle = state.puzzle;
     if (!puzzle) return;
+    if (state.continuePlaying !== 'off') {
+      stopContinuePlay();
+    }
     gameRef.current = new Chess(puzzle.fen);
     dispatch({ type: 'SET_FEN', fen: puzzle.fen });
     dispatch({ type: 'CLEAR_LINE_NAVIGATION' });
+    dispatch({ type: 'CLEAR_MOVES' });
     if (!state.bestRevealed) {
       dispatch({ type: 'SET_RESULT_VISIBLE', visible: false });
     }
-  }, [state.animating, state.puzzle, state.bestRevealed, dispatch]);
+  }, [state.animating, state.puzzle, state.bestRevealed, state.continuePlaying, stopContinuePlay, dispatch]);
 
   // Undo
   const handleUndo = useCallback(() => {
     if (state.animating) return;
     const game = gameRef.current;
     if (!game || game.history().length === 0) return;
+    if (state.continuePlaying !== 'off') {
+      stopContinuePlay();
+    }
     game.undo();
     dispatch({ type: 'SET_FEN', fen: game.fen() });
     dispatch({ type: 'POP_MOVE' });
-  }, [state.animating, dispatch]);
+  }, [state.animating, state.continuePlaying, stopContinuePlay, dispatch]);
+
+  // Undo/Redo during continue play (does not stop engine/self mode)
+  const handleContinueUndo = useCallback(() => {
+    if (state.animating) return;
+    const game = gameRef.current;
+    if (!game || state.moveHistory.length === 0) return;
+    const lastSan = state.moveHistory[state.moveHistory.length - 1];
+    game.undo();
+    dispatch({ type: 'SET_FEN', fen: game.fen() });
+    dispatch({ type: 'POP_MOVE' });
+    setRedoStack(prev => [...prev, lastSan!]);
+    refreshEval();
+  }, [state.animating, state.moveHistory, dispatch, refreshEval]);
+
+  const handleContinueRedo = useCallback(() => {
+    if (state.animating) return;
+    const game = gameRef.current;
+    if (!game || redoStack.length === 0) return;
+    const san = redoStack[redoStack.length - 1];
+    const move = game.move(san!);
+    if (!move) return;
+    dispatch({ type: 'SET_FEN', fen: game.fen() });
+    dispatch({ type: 'PUSH_MOVE', san: move.san });
+    setRedoStack(prev => prev.slice(0, -1));
+    refreshEval();
+  }, [state.animating, redoStack, dispatch, refreshEval]);
 
   // Flip board
   const handleFlip = useCallback(() => {
@@ -318,26 +460,42 @@ function TrainerCore(): preact.JSX.Element {
     return <div class="trainer-page" />;
   }
 
-  const interactive = !state.animating && !state.submitted && !!state.puzzle;
+  const interactive = !state.animating && (!state.submitted || state.bestRevealed) && !!state.puzzle;
 
   return (
     <div class="trainer-page">
       <div class="trainer-main" id="trainerLayout">
-        <div class="trainer-board-area">
+        <div class="trainer-board-area" ref={boardAreaRef}>
+          <div
+            ref={boardDragHandleRef}
+            class="board-drag-handle"
+            title="Drag to move board"
+          >⠇</div>
           <ContextTags puzzle={state.puzzle} />
           <div class="board-eval-wrapper">
-            <EvalBar cp={state.puzzle.eval_before} playerColor={state.puzzle.player_color} />
+            <EvalBar
+              cp={
+                engineEvalCp != null
+                  ? engineEvalCp
+                  : playerPovToWhitePov(
+                    state.puzzle.eval_before,
+                    state.puzzle.player_color,
+                  )
+              }
+            />
             <div id="boardWrapper">
               <Board
                 fen={state.fen}
                 orientation={state.orientation}
                 interactive={interactive}
+                movableColor={state.continuePlaying === 'vs-self' ? 'both' : undefined}
                 coordinates={filtersApi.state.showCoordinates}
                 highlights={highlights}
                 arrows={arrows}
                 gameRef={gameRef}
                 onMove={onBoardMove}
                 animateFrom={animateFrom}
+                moveCount={state.moveHistory.length}
               />
               <VimInput
             visible={vimInputVisible}
@@ -357,19 +515,30 @@ function TrainerCore(): preact.JSX.Element {
             submitting={submitting}
             hasPuzzle={!!state.puzzle}
           />
-          <ResultCard
-            visible={state.resultVisible}
-            feedbackType={state.feedbackType}
-            feedbackTitle={feedbackTitle}
-            feedbackDetail={feedbackDetail}
-            puzzle={state.puzzle}
-            bestRevealed={state.bestRevealed}
-            moveHistory={state.moveHistory}
-            onPlayBest={playBestMove}
-            onNext={handleNext}
-            onClose={() => { dispatch({ type: 'SET_RESULT_VISIBLE', visible: false }); }}
-          />
         </div>
+
+        <ResultCard
+          visible={state.resultVisible}
+          feedbackType={state.feedbackType}
+          feedbackTitle={feedbackTitle}
+          feedbackDetail={feedbackDetail}
+          puzzle={state.puzzle}
+          bestRevealed={state.bestRevealed}
+          moveHistory={state.moveHistory}
+          lineViewIndex={state.lineViewIndex}
+          activeLineType={state.activeLineType}
+          onPlayBest={playBestMove}
+          onNavigateLine={navigateLineTyped}
+          onNext={handleNext}
+          onClose={() => { dispatch({ type: 'SET_RESULT_VISIBLE', visible: false }); }}
+          continuePlaying={state.continuePlaying}
+          onStartContinuePlay={startContinuePlay}
+          onStopContinuePlay={stopContinuePlay}
+          onContinueUndo={handleContinueUndo}
+          onContinueRedo={handleContinueRedo}
+          canContinueUndo={state.moveHistory.length > 0}
+          canContinueRedo={redoStack.length > 0}
+        />
 
         <div class="trainer-panel">
           <PuzzleTools

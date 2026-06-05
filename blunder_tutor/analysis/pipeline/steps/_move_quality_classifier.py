@@ -154,6 +154,9 @@ def build_move_record(
         "best_move_san": move_data["best_move_san"],
         "best_line": move_data["best_line"],
         "best_move_eval": move_data["best_move_eval"],
+        "refutation_line": move_data.get("refutation_line"),
+        "refutation_line_san": move_data.get("refutation_line_san"),
+        "refutation_eval": move_data.get("refutation_eval"),
         "difficulty": difficulty,
         "missed_mate_depth": classification.missed_mate_depth,
     }

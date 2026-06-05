@@ -12,7 +12,10 @@ const puzzle = {
   cp_loss: 250, game_phase: 'middlegame',
   tactical_pattern: 'fork', tactical_reason: 'Knight forks king and rook',
   tactical_squares: ['e5'], explanation_blunder: 'Loses material',
-  explanation_best: 'Maintains advantage', game_url: null,
+  explanation_best: 'Maintains advantage',
+  explanation_refutation: 'Opponent can punish with ...Nf6',
+  refutation_line_san: ['Nf6', 'Nc3'],
+  game_url: null,
   difficulty: 'medium', pre_move_uci: null, pre_move_fen: null,
   best_move_eval: 60,
 };
@@ -26,7 +29,10 @@ describe('ResultCard', () => {
     puzzle,
     bestRevealed: true,
     moveHistory: [] as string[],
+    lineViewIndex: 0,
+    activeLineType: 'none' as const,
     onPlayBest: vi.fn(),
+    onNavigateLine: vi.fn(),
     onNext: vi.fn(),
     onClose: vi.fn(),
   };
@@ -45,12 +51,20 @@ describe('ResultCard', () => {
   it('shows best move when revealed', () => {
     render(<ResultCard {...defaults} />);
     expect(screen.getByText('d4')).not.toBeNull();
-    expect(screen.getByText('Nf6 c4')).not.toBeNull();
+    expect(screen.getAllByText('Nf6').length).toBeGreaterThan(0);
+    expect(screen.getByText('c4')).not.toBeNull();
   });
 
   it('shows tactical details', () => {
     render(<ResultCard {...defaults} />);
     expect(screen.getByText('fork')).not.toBeNull();
+    const tacticalDetails = document.querySelector('#tacticalDetails') as HTMLDetailsElement;
+    expect(tacticalDetails?.open).toBe(true);
+  });
+
+  it('shows opponent refutation label only once', () => {
+    render(<ResultCard {...defaults} />);
+    expect(screen.getAllByText('trainer.explanation.refutation', { exact: false })).toHaveLength(1);
   });
 
   it('calls onNext on next button click', () => {
@@ -74,6 +88,6 @@ describe('ResultCard', () => {
 
   it('shows play best button for non-correct feedback', () => {
     render(<ResultCard {...defaults} feedbackType="blunder" />);
-    expect(screen.getByText('trainer.button.play_best', { exact: false })).not.toBeNull();
+    expect(screen.getByRole('button', { name: /trainer\.button\.play_best/ })).not.toBeNull();
   });
 });

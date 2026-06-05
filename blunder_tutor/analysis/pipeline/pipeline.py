@@ -14,6 +14,7 @@ class PipelinePreset(Enum):
     BACKFILL_ECO = ["eco"]
     BACKFILL_PHASE = ["phase"]
     BACKFILL_TRAPS = ["traps"]
+    LLM_BACKFILL = ["llm"]
 
 
 @dataclass

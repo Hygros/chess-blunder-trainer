@@ -16,6 +16,7 @@ from fast_depends import Depends, inject
 from blunder_tutor.analysis.logic import GameAnalyzer
 from blunder_tutor.background.jobs.analyze_games import AnalyzeGamesJob
 from blunder_tutor.background.jobs.backfill_eco import BackfillECOJob
+from blunder_tutor.background.jobs.backfill_llm import BackfillLLMJob
 from blunder_tutor.background.jobs.backfill_phases import BackfillPhasesJob
 from blunder_tutor.background.jobs.backfill_tactics import BackfillTacticsJob
 from blunder_tutor.background.jobs.backfill_traps import BackfillTrapsJob
@@ -28,6 +29,7 @@ from blunder_tutor.cache.scope import user_scope
 from blunder_tutor.constants import (
     JOB_TYPE_ANALYZE,
     JOB_TYPE_BACKFILL_ECO,
+    JOB_TYPE_BACKFILL_LLM,
     JOB_TYPE_BACKFILL_PHASES,
     JOB_TYPE_BACKFILL_TACTICS,
     JOB_TYPE_BACKFILL_TRAPS,
@@ -184,6 +186,23 @@ async def run_backfill_phases_job(
 
 
 @inject
+async def run_backfill_llm_job(
+    job_id: str,
+    job_service: JobServiceDep,
+    analysis_repo: AnalysisRepoDep,
+    game_repo: GameRepoDep,
+) -> dict[str, Any]:
+    ctx = get_context()
+    job = BackfillLLMJob(
+        job_service=job_service,
+        analysis_repo=analysis_repo,
+        game_repo=game_repo,
+        engine_path=ctx.engine_path,
+    )
+    return await job.execute(job_id=job_id)
+
+
+@inject
 async def run_backfill_eco_job(
     job_id: str,
     job_service: JobServiceDep,
@@ -291,6 +310,7 @@ JOB_RUNNERS = MappingProxyType(
         JOB_TYPE_SYNC: run_sync_job,
         JOB_TYPE_ANALYZE: run_analyze_job,
         JOB_TYPE_BACKFILL_PHASES: run_backfill_phases_job,
+        JOB_TYPE_BACKFILL_LLM: run_backfill_llm_job,
         JOB_TYPE_BACKFILL_ECO: run_backfill_eco_job,
         JOB_TYPE_BACKFILL_TACTICS: run_backfill_tactics_job,
         JOB_TYPE_BACKFILL_TRAPS: run_backfill_traps_job,

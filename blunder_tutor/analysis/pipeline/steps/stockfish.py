@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from blunder_tutor.analysis.pipeline.context import StepContext
 
 MATE_SCORE_ANALYSIS = 100000
+REFUTATION_PLY_DEPTH = 16
+
 
 
 @dataclass(frozen=True)
@@ -48,13 +50,34 @@ def _collect_positions(game: chess.pgn.Game) -> PositionWalk:
     return PositionWalk(positions=positions, moves=moves)
 
 
+def _pv_lines(
+    board: chess.Board,
+    info: chess.engine.InfoDict | None,
+    max_plies: int,
+) -> tuple[list[str], list[str]]:
+    if info is None:
+        return [], []
+    pv = info.get("pv", [])
+    if not pv:
+        return [], []
+
+    cursor = board.copy()
+    san_line: list[str] = []
+    uci_line: list[str] = []
+    for pv_move in pv[:max_plies]:
+        san_line.append(cursor.san(pv_move))
+        uci_line.append(pv_move.uci())
+        cursor.push(pv_move)
+    return san_line, uci_line
+
+
 def _pv_summary(
     board: chess.Board,
     info: chess.engine.InfoDict,
     eval_before: int,
 ) -> dict:
-    pv = info.get("pv", [])
-    if not pv:
+    san_line, uci_line = _pv_lines(board, info, max_plies=10)
+    if not san_line or not uci_line:
         return {
             "best_move_uci": None,
             "best_move_san": None,
@@ -62,17 +85,26 @@ def _pv_summary(
             "best_move_eval": None,
         }
 
-    cursor = board.copy()
-    line: list[str] = []
-    for pv_move in pv[:5]:
-        line.append(cursor.san(pv_move))
-        cursor.push(pv_move)
-
     return {
-        "best_move_uci": pv[0].uci(),
-        "best_move_san": board.san(pv[0]),
-        "best_line": " ".join(line),
+        "best_move_uci": uci_line[0],
+        "best_move_san": san_line[0],
+        "best_line": " ".join(san_line),
         "best_move_eval": eval_before,
+    }
+
+
+def _refutation_summary(
+    board_after_blunder: chess.Board,
+    info_after: chess.engine.InfoDict | None,
+    eval_after: int,
+) -> dict:
+    san_line, uci_line = _pv_lines(
+        board_after_blunder, info_after, max_plies=REFUTATION_PLY_DEPTH
+    )
+    return {
+        "refutation_line": uci_line,
+        "refutation_line_san": san_line,
+        "refutation_eval": eval_after,
     }
 
 
@@ -104,6 +136,8 @@ def _build_move_eval(
         1 if meta.player == chess.WHITE else 2  # noqa: WPS509 — single parenthesized ternary inside arithmetic, no nesting.
     )
     eval_after = _eval_after(walk, infos, idx, meta.player)
+    board_after = walk.positions[idx + 1]
+    info_after = infos[idx + 1]
 
     return {
         "ply": ply,
@@ -116,6 +150,7 @@ def _build_move_eval(
         "info_before": info_before,
         "board": board,
         **_pv_summary(board, info_before, eval_before),
+        **_refutation_summary(board_after, info_after, eval_after),
     }
 
 

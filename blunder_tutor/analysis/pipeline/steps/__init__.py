@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from blunder_tutor.analysis.pipeline.steps.base import AnalysisStep
 from blunder_tutor.analysis.pipeline.steps.eco import ECOClassifyStep
+from blunder_tutor.analysis.pipeline.steps.llm_step import LLMExplanationStep
 from blunder_tutor.analysis.pipeline.steps.move_quality import MoveQualityStep
 from blunder_tutor.analysis.pipeline.steps.phase import PhaseClassifyStep
 from blunder_tutor.analysis.pipeline.steps.stockfish import StockfishAnalysisStep
@@ -19,4 +20,5 @@ def get_all_steps() -> list[AnalysisStep]:
         TacticsClassifyStep(),
         TrapDetectionStep(),
         WriteAnalysisStep(),
+        LLMExplanationStep(),
     ]

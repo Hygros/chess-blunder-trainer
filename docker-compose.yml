@@ -2,38 +2,30 @@ services:
   blunder-tutor:
     build:
       context: .
-    container_name: blunder-tutor
-    # UID:GID pinned to the appuser baked into the image. Pin here as
-    # well so bind-mount ownership (./data) on the host stays readable
-    # by the host developer account without a chown dance.
+    container_name: blunder-tutor-local
     user: "1000:1000"
     ports:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      # Optional: Pre-configure usernames to skip setup screen
       - LICHESS_USERNAME=${LICHESS_USERNAME:-}
       - CHESSCOM_USERNAME=${CHESSCOM_USERNAME:-}
-
-      # Engine configuration
       - STOCKFISH_BINARY=/usr/local/bin/stockfish
       - STOCKFISH_DEPTH=${STOCKFISH_DEPTH:-14}
-
-      # Demo mode (rate-limits engine endpoints, blocks mutations)
-      # - DEMO_MODE=true
-      # - DEMO_THROTTLE_RATE=30/60  # requests/seconds per IP (default: 30/60)
-
-      # Override database path (e.g. to use embedded demo DB)
-      # - DB_PATH=/app/demo/demo.sqlite3
-
-      # Server configuration
+      - EXPLANATION_LLM_ENABLED=${EXPLANATION_LLM_ENABLED:-true}
+      - LLM_PROVIDER=${LLM_PROVIDER:-groq}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-llama-3.1-8b-instant}
+      - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-30}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434/api/generate}
       - HOST=0.0.0.0
       - PORT=8000
     restart: unless-stopped
     healthcheck:
-      test:
-        ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8000/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
       retries: 3

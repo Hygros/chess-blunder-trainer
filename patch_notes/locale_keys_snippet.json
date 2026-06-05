@@ -1,0 +1,7 @@
+{
+  "trainer.explanation.consequence": "Why this was a blunder",
+  "trainer.explanation.refutation": "What the opponent can play",
+  "trainer.explanation.comparison": "What was better",
+  "explanation.bundle.consequence_cp_loss": "This move loses about {loss} pawns worth of advantage.",
+  "explanation.bundle.refutation_line": "The opponent can answer with: {line}"
+}

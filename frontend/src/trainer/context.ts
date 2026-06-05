@@ -11,6 +11,8 @@ export interface LinePosition {
 }
 
 export type FeedbackType = 'correct' | 'blunder' | 'good' | 'not-quite' | null;
+export type ActiveLineType = 'best' | 'refutation' | null;
+export type ContinuePlayMode = 'off' | 'vs-engine' | 'vs-self';
 type EmptyStateType = 'no-puzzles' | 'no_games' | 'no_blunders' | 'no_blunders_filtered' | 'analyzing' | null;
 
 export interface TrainerState {
@@ -20,9 +22,11 @@ export interface TrainerState {
   moveHistory: string[];
   linePositions: LinePosition[];
   lineViewIndex: number;
+  activeLineType: ActiveLineType;
   animating: boolean;
   boardFlipped: boolean;
   currentStarred: boolean;
+  continuePlaying: ContinuePlayMode;
 
   orientation: Color;
   fen: string;
@@ -42,6 +46,7 @@ export type TrainerAction =
   | { type: 'REVEAL_BEST' }
   | { type: 'PUSH_MOVE'; san: string }
   | { type: 'POP_MOVE' }
+  | { type: 'CLEAR_MOVES' }
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'SET_FEEDBACK'; feedbackType: FeedbackType }
   | { type: 'SET_RESULT_VISIBLE'; visible: boolean }
@@ -50,12 +55,14 @@ export type TrainerAction =
   | { type: 'PUSH_LINE_POSITION'; position: LinePosition }
   | { type: 'SET_LINE_VIEW_INDEX'; index: number }
   | { type: 'CLEAR_LINE_NAVIGATION' }
+  | { type: 'SET_ACTIVE_LINE_TYPE'; activeLineType: ActiveLineType }
   | { type: 'SET_ANIMATING'; animating: boolean }
   | { type: 'SET_EMPTY_STATE'; emptyState: EmptyStateType }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'TOGGLE_SHORTCUTS' }
   | { type: 'SET_BOARD_FLIPPED'; flipped: boolean }
-  | { type: 'SET_STARRED'; starred: boolean };
+  | { type: 'SET_STARRED'; starred: boolean }
+  | { type: 'SET_CONTINUE_PLAYING'; mode: ContinuePlayMode };
 
 export const initialState: TrainerState = {
   puzzle: null,
@@ -64,9 +71,11 @@ export const initialState: TrainerState = {
   moveHistory: [],
   linePositions: [],
   lineViewIndex: -1,
+  activeLineType: null,
   animating: false,
   boardFlipped: false,
   currentStarred: false,
+  continuePlaying: 'off',
 
   orientation: 'white',
   fen: '',
@@ -90,12 +99,14 @@ export function trainerReducer(state: TrainerState, action: TrainerAction): Trai
         moveHistory: [],
         linePositions: [],
         lineViewIndex: -1,
+        activeLineType: null,
         animating: false,
         feedbackType: null,
         resultVisible: false,
         loading: false,
         error: null,
         emptyState: null,
+        continuePlaying: 'off',
       };
     case 'RESET_FOR_NEW_PUZZLE':
       return {
@@ -106,6 +117,7 @@ export function trainerReducer(state: TrainerState, action: TrainerAction): Trai
         moveHistory: [],
         linePositions: [],
         lineViewIndex: -1,
+        activeLineType: null,
         animating: false,
         feedbackType: null,
         resultVisible: false,
@@ -121,6 +133,8 @@ export function trainerReducer(state: TrainerState, action: TrainerAction): Trai
       return { ...state, moveHistory: [...state.moveHistory, action.san] };
     case 'POP_MOVE':
       return { ...state, moveHistory: state.moveHistory.slice(0, -1) };
+    case 'CLEAR_MOVES':
+      return { ...state, moveHistory: [] };
     case 'SET_LOADING':
       return { ...state, loading: action.loading };
     case 'SET_FEEDBACK':
@@ -136,7 +150,9 @@ export function trainerReducer(state: TrainerState, action: TrainerAction): Trai
     case 'SET_LINE_VIEW_INDEX':
       return { ...state, lineViewIndex: action.index };
     case 'CLEAR_LINE_NAVIGATION':
-      return { ...state, linePositions: [], lineViewIndex: -1 };
+      return { ...state, linePositions: [], lineViewIndex: -1, activeLineType: null };
+    case 'SET_ACTIVE_LINE_TYPE':
+      return { ...state, activeLineType: action.activeLineType };
     case 'SET_ANIMATING':
       return { ...state, animating: action.animating };
     case 'SET_EMPTY_STATE':
@@ -149,6 +165,8 @@ export function trainerReducer(state: TrainerState, action: TrainerAction): Trai
       return { ...state, boardFlipped: action.flipped };
     case 'SET_STARRED':
       return { ...state, currentStarred: action.starred };
+    case 'SET_CONTINUE_PLAYING':
+      return { ...state, continuePlaying: action.mode };
   }
 }
 

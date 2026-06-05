@@ -156,15 +156,28 @@ class I18nMessage:
 
 
 @dataclass(frozen=True)
+class ExplanationBundle:
+    consequence: I18nMessage | None = None
+    refutation: I18nMessage | None = None
+    comparison: I18nMessage | None = None
+
+
+@dataclass(frozen=True)
 class BlunderExplanation:
     blunder: I18nMessage | None
     best_move: I18nMessage | None
+    bundle: ExplanationBundle = field(default_factory=ExplanationBundle)
+    llm_text: str | None = None
 
 
 @dataclass(frozen=True)
 class ResolvedExplanation:
     blunder_text: str
     best_move_text: str
+    consequence_text: str = ""
+    refutation_text: str = ""
+    comparison_text: str = ""
+    llm_text: str | None = None
 
 
 def _resolve_message(message: I18nMessage | None, t: Callable[..., str]) -> str:
@@ -184,6 +197,10 @@ def resolve_explanation(
     return ResolvedExplanation(
         blunder_text=_resolve_message(explanation.blunder, t),
         best_move_text=_resolve_message(explanation.best_move, t),
+        consequence_text=_resolve_message(explanation.bundle.consequence, t),
+        refutation_text=_resolve_message(explanation.bundle.refutation, t),
+        comparison_text=_resolve_message(explanation.bundle.comparison, t),
+        llm_text=explanation.llm_text,
     )
 
 
@@ -1109,6 +1126,45 @@ def _explain_best(
 
 
 # ---------------------------------------------------------------------------
+# Structured refutation explanation
+# ---------------------------------------------------------------------------
+
+
+def _line_to_text(line: list[str] | None, max_plies: int = 8) -> str:
+    return " ".join((line or [])[:max_plies])
+
+
+def _build_explanation_bundle(
+    blunder_msg: I18nMessage | None,
+    best_msg: I18nMessage | None,
+    refutation_line: list[str] | None,
+    cp_loss: int,
+) -> ExplanationBundle:
+    pawn_loss = cp_loss / CENTIPAWNS_PER_PAWN
+    consequence = blunder_msg or (
+        I18nMessage(
+            key="explanation.bundle.consequence_cp_loss",
+            params={"loss": f"{pawn_loss:.1f}"},
+        )
+        if pawn_loss >= 1
+        else None
+    )
+    refutation = (
+        I18nMessage(
+            key="explanation.bundle.refutation_line",
+            params={"line": _line_to_text(refutation_line)},
+        )
+        if refutation_line
+        else None
+    )
+    return ExplanationBundle(
+        consequence=consequence,
+        refutation=refutation,
+        comparison=best_msg,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -1132,6 +1188,7 @@ def generate_explanation(
     tactical_pattern: str | None = None,
     cp_loss: int = 0,
     best_line: list[str] | None = None,
+    refutation_line: list[str] | None = None,
 ) -> BlunderExplanation:
     board = chess.Board(fen)
     blunder_move = _parse_legal_move(board, blunder_uci)
@@ -1145,4 +1202,14 @@ def generate_explanation(
         if best_move
         else None
     )
-    return BlunderExplanation(blunder=blunder_msg, best_move=best_msg)
+    bundle = _build_explanation_bundle(
+        blunder_msg=blunder_msg,
+        best_msg=best_msg,
+        refutation_line=refutation_line,
+        cp_loss=cp_loss,
+    )
+    return BlunderExplanation(
+        blunder=blunder_msg,
+        best_move=best_msg,
+        bundle=bundle,
+    )

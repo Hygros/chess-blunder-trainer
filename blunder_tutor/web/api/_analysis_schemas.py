@@ -151,6 +151,34 @@ class PuzzleResponse(BaseModel):
         default=None,
         description="Beginner-friendly explanation of what the best move achieves",
     )
+    explanation_consequence: str | None = Field(
+        default=None,
+        description="Structured explanation segment: why the move is bad",
+    )
+    explanation_refutation: str | None = Field(
+        default=None,
+        description="Structured explanation segment: concrete opponent refutation line",
+    )
+    explanation_comparison: str | None = Field(
+        default=None,
+        description="Structured explanation segment: why the best move is better",
+    )
+    explanation_llm: str | None = Field(
+        default=None,
+        description="Optional LLM-generated explanation based on engine data",
+    )
+    refutation_line: list[str] | None = Field(
+        default=None,
+        description="Opponent refutation line after the blunder in UCI notation",
+    )
+    refutation_line_san: list[str] | None = Field(
+        default=None,
+        description="Opponent refutation line after the blunder in SAN notation",
+    )
+    refutation_eval: int | None = Field(
+        default=None,
+        description="Evaluation for the refutation / after-blunder analysis",
+    )
     pre_move_uci: str | None = Field(
         default=None,
         description="Opponent's preceding move in UCI notation (e.g., 'e7e5'), null for ply 1",

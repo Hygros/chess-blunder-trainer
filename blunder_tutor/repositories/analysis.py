@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from datetime import UTC, datetime
 
@@ -8,7 +9,37 @@ from blunder_tutor.repositories.base import BaseDbRepository
 from blunder_tutor.utils.time_control import classify_game_type
 
 
+def _json_dumps(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return json.dumps(value)
+
+
+def _json_loads(value: object) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return value.split()
+    return parsed if isinstance(parsed, list) else None
+
+
+def _decode_refutation_fields(row: object) -> dict[str, object]:
+    result = dict(row)
+    result["refutation_line"] = _json_loads(result.get("refutation_line"))
+    result["refutation_line_san"] = _json_loads(result.get("refutation_line_san"))
+    return result
+
+
 class AnalysisRepository(BaseDbRepository):
+
     async def analysis_exists(self, game_id: str) -> bool:
         conn = await self.get_connection()
         async with conn.execute(
@@ -63,9 +94,11 @@ class AnalysisRepository(BaseDbRepository):
                 INSERT INTO analysis_moves (
                     game_id, ply, move_number, player, uci, san,
                     eval_before, eval_after, delta, cp_loss, classification,
-                    best_move_uci, best_move_san, best_line, best_move_eval, game_phase,
-                    tactical_pattern, tactical_reason, difficulty, missed_mate_depth
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    best_move_uci, best_move_san, best_line, best_move_eval,
+                    refutation_line, refutation_line_san, refutation_eval,
+                    game_phase, tactical_pattern, tactical_reason, difficulty,
+                    missed_mate_depth, llm_explanation, llm_explanation_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -84,11 +117,16 @@ class AnalysisRepository(BaseDbRepository):
                         move.get("best_move_san"),
                         move.get("best_line"),
                         move.get("best_move_eval"),
+                        _json_dumps(move.get("refutation_line")),
+                        _json_dumps(move.get("refutation_line_san")),
+                        move.get("refutation_eval"),
                         move.get("game_phase"),
                         move.get("tactical_pattern"),
                         move.get("tactical_reason"),
                         move.get("difficulty"),
                         move.get("missed_mate_depth"),
+                        move.get("llm_explanation"),
+                        move.get("llm_explanation_version"),
                     )
                     for move in moves
                 ],
@@ -102,7 +140,10 @@ class AnalysisRepository(BaseDbRepository):
             placeholders = ",".join("?" * len(game_phases))
             query = f"""
                 SELECT game_id, ply, player, uci, san, eval_before, eval_after, cp_loss,
-                       best_move_uci, best_move_san, best_line, best_move_eval, game_phase
+                       best_move_uci, best_move_san, best_line, best_move_eval,
+                       refutation_line, refutation_line_san, refutation_eval, game_phase,
+                       tactical_pattern, tactical_reason, difficulty, missed_mate_depth,
+                      llm_explanation, llm_explanation_version
                 FROM analysis_moves
                 WHERE classification = ? AND game_phase IN ({placeholders})
             """
@@ -110,14 +151,17 @@ class AnalysisRepository(BaseDbRepository):
         else:
             query = """
                 SELECT game_id, ply, player, uci, san, eval_before, eval_after, cp_loss,
-                       best_move_uci, best_move_san, best_line, best_move_eval, game_phase
+                       best_move_uci, best_move_san, best_line, best_move_eval,
+                       refutation_line, refutation_line_san, refutation_eval, game_phase,
+                       tactical_pattern, tactical_reason, difficulty, missed_mate_depth,
+                      llm_explanation, llm_explanation_version
                 FROM analysis_moves
                 WHERE classification = ?
             """
             params = (CLASSIFICATION_BLUNDER,)
         async with conn.execute(query, params) as cursor:
             rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        return [_decode_refutation_fields(row) for row in rows]
 
     async def get_move_analysis(
         self, game_id: str, ply: int
@@ -127,8 +171,10 @@ class AnalysisRepository(BaseDbRepository):
             """
             SELECT game_id, ply, player, uci, san, eval_before, eval_after, cp_loss,
                    best_move_uci, best_move_san, best_line, best_move_eval,
+                   refutation_line, refutation_line_san, refutation_eval,
                    game_phase, tactical_pattern, tactical_reason,
-                   difficulty, missed_mate_depth
+                     difficulty, missed_mate_depth, llm_explanation,
+                     llm_explanation_version
             FROM analysis_moves
             WHERE game_id = ? AND ply = ?
             """,
@@ -139,7 +185,7 @@ class AnalysisRepository(BaseDbRepository):
         if not row:
             return None
 
-        return dict(row)
+        return _decode_refutation_fields(row)
 
     async def fetch_moves(self, game_id: str) -> list[dict[str, object]]:
         conn = await self.get_connection()
@@ -377,8 +423,10 @@ class AnalysisRepository(BaseDbRepository):
             SELECT am.game_id, am.ply, am.player, am.uci, am.san,
                    am.eval_before, am.eval_after, am.cp_loss,
                    am.best_move_uci, am.best_move_san, am.best_line, am.best_move_eval,
+                   am.refutation_line, am.refutation_line_san, am.refutation_eval,
                    am.game_phase, am.tactical_pattern, am.tactical_reason,
-                   g.time_control, am.difficulty, am.missed_mate_depth
+                     g.time_control, am.difficulty, am.missed_mate_depth,
+                     am.llm_explanation, am.llm_explanation_version
             FROM analysis_moves am
             JOIN game_index_cache g ON am.game_id = g.game_id
             WHERE {where_clause}
@@ -397,6 +445,62 @@ class AnalysisRepository(BaseDbRepository):
             if game_types_set and game_type not in game_types_set:
                 continue
 
-            results.append({**dict(row), "game_type": game_type})
+            results.append({**_decode_refutation_fields(row), "game_type": game_type})
 
         return results
+
+    async def update_move_llm_explanation(
+        self,
+        game_id: str,
+        ply: int,
+        text: str,
+        *,
+        version: int,
+    ) -> None:
+        async with self.write_transaction() as conn:
+            await conn.execute(
+                """
+                UPDATE analysis_moves
+                SET llm_explanation = ?, llm_explanation_version = ?
+                WHERE game_id = ? AND ply = ?
+                """,
+                (text, version, game_id, ply),
+            )
+
+    async def get_game_ids_missing_or_outdated_llm_explanation(
+        self, *, expected_version: int
+    ) -> list[str]:
+        conn = await self.get_connection()
+        async with conn.execute(
+            """
+            SELECT DISTINCT game_id FROM analysis_moves
+            WHERE classification = ?
+              AND (
+                llm_explanation IS NULL
+                OR llm_explanation_version IS NULL
+                OR llm_explanation_version != ?
+              )
+            """,
+            (CLASSIFICATION_BLUNDER, expected_version),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [row["game_id"] for row in rows]
+
+    async def fetch_blunders_for_game(self, game_id: str) -> list[dict[str, object]]:
+        conn = await self.get_connection()
+        async with conn.execute(
+            """
+            SELECT ply, player, uci, san, eval_before, eval_after, cp_loss,
+                   best_move_uci, best_move_san, best_line, best_move_eval,
+                   refutation_line, refutation_line_san, refutation_eval,
+                   game_phase, tactical_pattern, tactical_reason,
+                     difficulty, missed_mate_depth, llm_explanation,
+                     llm_explanation_version
+            FROM analysis_moves
+            WHERE game_id = ? AND classification = ?
+            ORDER BY ply
+            """,
+            (game_id, CLASSIFICATION_BLUNDER),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [_decode_refutation_fields(row) for row in rows]

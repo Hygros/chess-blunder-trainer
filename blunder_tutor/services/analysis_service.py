@@ -37,7 +37,7 @@ def _extract_best_line(
     best_san = board.san(pv[0])
     line: list[str] = []
     temp_board = board.copy()
-    for move in pv[:5]:
+    for move in pv[:10]:
         line.append(temp_board.san(move))
         temp_board.push(move)
     return best_uci, best_san, line

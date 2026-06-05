@@ -2,48 +2,102 @@ import { useRef, useCallback, useEffect } from 'preact/hooks';
 import { STORAGE_KEYS } from '../../shared/storage-keys';
 
 const DRAG_STORAGE_KEY = STORAGE_KEYS.trainerResultCardPos;
+const SIZE_STORAGE_KEY = STORAGE_KEYS.trainerResultCardSize;
 
-export function useDrag(cardRef: preact.RefObject<HTMLDivElement | null>): {
+interface StoredPosition {
+  leftPx: number;
+  topPx: number;
+}
+
+interface StoredSize {
+  widthPx: number;
+  heightPx: number;
+}
+
+function parseStoredPosition(raw: string | null): StoredPosition | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredPosition>;
+    if (typeof parsed.leftPx !== 'number' || typeof parsed.topPx !== 'number') return null;
+    return { leftPx: parsed.leftPx, topPx: parsed.topPx };
+  } catch {
+    return null;
+  }
+}
+
+function parseStoredSize(raw: string | null): StoredSize | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredSize>;
+    if (typeof parsed.widthPx !== 'number' || typeof parsed.heightPx !== 'number') return null;
+    return { widthPx: parsed.widthPx, heightPx: parsed.heightPx };
+  } catch {
+    return null;
+  }
+}
+
+export function useDrag(
+  cardRef: preact.RefObject<HTMLDivElement | null>,
+  isActive = true,
+): {
   handleRef: (el: HTMLDivElement | null) => void;
   restorePosition: () => void;
 } {
   const handleElRef = useRef<HTMLDivElement | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const sizePersistenceEnabledRef = useRef(false);
   const draggingRef = useRef(false);
   const startRef = useRef({ x: 0, y: 0, left: 0, top: 0 });
+
+  const saveSize = useCallback(() => {
+    if (!sizePersistenceEnabledRef.current) return;
+    const card = cardRef.current;
+    const inner = card?.querySelector<HTMLDivElement>('.board-result-inner');
+    if (!inner) return;
+
+    const rect = inner.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    localStorage.setItem(SIZE_STORAGE_KEY, JSON.stringify({
+      widthPx: rect.width,
+      heightPx: rect.height,
+    }));
+  }, [cardRef]);
 
   const restorePosition = useCallback(() => {
     const card = cardRef.current;
     if (!card) return;
-    const parent = card.parentElement;
-    if (!parent) return;
-    const stored = localStorage.getItem(DRAG_STORAGE_KEY);
-    if (!stored) return;
 
-    try {
-      const pos = JSON.parse(stored) as { leftPct: number; topPct: number };
-      const parentRect = parent.getBoundingClientRect();
-      let left = pos.leftPct * parentRect.width;
-      let top = pos.topPct * parentRect.height;
-      left = Math.max(0, Math.min(left, parentRect.width - card.offsetWidth));
-      top = Math.max(0, Math.min(top, parentRect.height - card.offsetHeight));
-      card.style.left = `${String(left)}px`;
-      card.style.top = `${String(top)}px`;
-      card.style.right = 'auto';
-      card.style.bottom = 'auto';
-    } catch { /* ignore corrupt data */ }
+    sizePersistenceEnabledRef.current = false;
+
+    const inner = card.querySelector<HTMLDivElement>('.board-result-inner');
+    const size = parseStoredSize(localStorage.getItem(SIZE_STORAGE_KEY));
+    if (inner && size) {
+      inner.style.width = `${String(Math.max(220, size.widthPx))}px`;
+      inner.style.height = `${String(Math.max(120, size.heightPx))}px`;
+    }
+
+    sizePersistenceEnabledRef.current = true;
+
+    const pos = parseStoredPosition(localStorage.getItem(DRAG_STORAGE_KEY));
+    if (!pos) return;
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const maxLeft = Math.max(0, vw - card.offsetWidth);
+    const maxTop = Math.max(0, vh - card.offsetHeight);
+    const left = Math.max(0, Math.min(pos.leftPx, maxLeft));
+    const top = Math.max(0, Math.min(pos.topPx, maxTop));
+    card.style.left = `${String(left)}px`;
+    card.style.top = `${String(top)}px`;
+    card.style.right = 'auto';
+    card.style.bottom = 'auto';
   }, [cardRef]);
 
   const savePosition = useCallback(() => {
     const card = cardRef.current;
     if (!card) return;
-    const parent = card.parentElement;
-    if (!parent) return;
-    const parentRect = parent.getBoundingClientRect();
-    const cardRect = card.getBoundingClientRect();
-    const pos = {
-      leftPct: (cardRect.left - parentRect.left) / parentRect.width,
-      topPct: (cardRect.top - parentRect.top) / parentRect.height,
-    };
+    const rect = card.getBoundingClientRect();
+    const pos = { leftPx: rect.left, topPx: rect.top };
     localStorage.setItem(DRAG_STORAGE_KEY, JSON.stringify(pos));
   }, [cardRef]);
 
@@ -64,14 +118,13 @@ export function useDrag(cardRef: preact.RefObject<HTMLDivElement | null>): {
     if (!draggingRef.current) return;
     const card = cardRef.current;
     if (!card) return;
-    const parent = card.parentElement;
-    if (!parent) return;
-    const parentRect = parent.getBoundingClientRect();
     const s = startRef.current;
-    let newLeft = s.left + (e.clientX - s.x) - parentRect.left;
-    let newTop = s.top + (e.clientY - s.y) - parentRect.top;
-    newLeft = Math.max(0, Math.min(newLeft, parentRect.width - card.offsetWidth));
-    newTop = Math.max(0, Math.min(newTop, parentRect.height - card.offsetHeight));
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let newLeft = s.left + (e.clientX - s.x);
+    let newTop = s.top + (e.clientY - s.y);
+    newLeft = Math.max(0, Math.min(newLeft, vw - card.offsetWidth));
+    newTop = Math.max(0, Math.min(newTop, vh - card.offsetHeight));
     card.style.left = `${String(newLeft)}px`;
     card.style.top = `${String(newTop)}px`;
     card.style.right = 'auto';
@@ -86,20 +139,70 @@ export function useDrag(cardRef: preact.RefObject<HTMLDivElement | null>): {
     savePosition();
   }, [cardRef, savePosition]);
 
+  const onPointerCancelOrCaptureLoss = useCallback(() => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    cardRef.current?.classList.remove('dragging');
+    savePosition();
+  }, [cardRef, savePosition]);
+
   const handleRef = useCallback((el: HTMLDivElement | null) => {
     const prev = handleElRef.current;
     if (prev) {
       prev.removeEventListener('pointerdown', onPointerDown);
       prev.removeEventListener('pointermove', onPointerMove);
       prev.removeEventListener('pointerup', onPointerUp);
+      prev.removeEventListener('pointercancel', onPointerCancelOrCaptureLoss);
+      prev.removeEventListener('lostpointercapture', onPointerCancelOrCaptureLoss);
     }
     handleElRef.current = el;
     if (el) {
       el.addEventListener('pointerdown', onPointerDown);
       el.addEventListener('pointermove', onPointerMove);
       el.addEventListener('pointerup', onPointerUp);
+      el.addEventListener('pointercancel', onPointerCancelOrCaptureLoss);
+      el.addEventListener('lostpointercapture', onPointerCancelOrCaptureLoss);
     }
-  }, [onPointerDown, onPointerMove, onPointerUp]);
+  }, [onPointerDown, onPointerMove, onPointerUp, onPointerCancelOrCaptureLoss]);
+
+  useEffect(() => {
+    if (!isActive) {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      sizePersistenceEnabledRef.current = false;
+      return;
+    }
+
+    const card = cardRef.current;
+    const inner = card?.querySelector<HTMLDivElement>('.board-result-inner');
+    if (!inner) return;
+
+    sizePersistenceEnabledRef.current = false;
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        saveSize();
+      });
+      observer.observe(inner);
+      resizeObserverRef.current = observer;
+
+      return () => {
+        observer.disconnect();
+        resizeObserverRef.current = null;
+        sizePersistenceEnabledRef.current = false;
+      };
+    }
+
+    const onWindowResize = () => {
+      saveSize();
+    };
+
+    window.addEventListener('resize', onWindowResize);
+    return () => {
+      window.removeEventListener('resize', onWindowResize);
+      sizePersistenceEnabledRef.current = false;
+    };
+  }, [cardRef, saveSize, isActive]);
 
   useEffect(() => {
     return () => {
@@ -108,9 +211,14 @@ export function useDrag(cardRef: preact.RefObject<HTMLDivElement | null>): {
         el.removeEventListener('pointerdown', onPointerDown);
         el.removeEventListener('pointermove', onPointerMove);
         el.removeEventListener('pointerup', onPointerUp);
+        el.removeEventListener('pointercancel', onPointerCancelOrCaptureLoss);
+        el.removeEventListener('lostpointercapture', onPointerCancelOrCaptureLoss);
       }
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      sizePersistenceEnabledRef.current = false;
     };
-  }, [onPointerDown, onPointerMove, onPointerUp]);
+  }, [onPointerDown, onPointerMove, onPointerUp, onPointerCancelOrCaptureLoss]);
 
   return { handleRef, restorePosition };
 }

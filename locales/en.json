@@ -595,6 +595,11 @@
   "trainer.button.play_line": "Play the line",
   "trainer.color.playing_as_black": "Playing as Black",
   "trainer.color.playing_as_white": "Playing as White",
+  "trainer.continue.playing_engine": "Playing vs Stockfish",
+  "trainer.continue.playing_self": "Free play",
+  "trainer.continue.stop": "Stop",
+  "trainer.continue.vs_engine": "vs Stockfish",
+  "trainer.continue.vs_self": "vs Self",
   "trainer.debug.copied": "Copied!",
   "trainer.debug.copy": "Debug",
   "trainer.debug.copy_title": "Copy game debug info to clipboard",
@@ -710,5 +715,11 @@
   "traps.times_fell": "times fell for trap",
   "traps.title": "Traps & Attacks",
   "traps.view_all": "View all traps",
-  "traps.your_games": "Your Games"
+  "traps.your_games": "Your Games",
+  "explanation.bundle.consequence_cp_loss": "This move loses about {loss} pawns worth of advantage.",
+  "explanation.bundle.refutation_line": "The opponent can answer with: {line}",
+  "trainer.explanation.ai": "Coach insight (AI)",
+  "trainer.explanation.consequence": "Why this was a blunder",
+  "trainer.explanation.refutation": "What the opponent can play",
+  "trainer.explanation.comparison": "What was better"
 }

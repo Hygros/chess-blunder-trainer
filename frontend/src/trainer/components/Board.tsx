@@ -19,12 +19,14 @@ interface BoardProps {
   fen: string;
   orientation: 'white' | 'black';
   interactive: boolean;
+  movableColor?: 'white' | 'black' | 'both';
   coordinates: boolean;
   highlights: HighlightMap;
   arrows: Arrow[];
   gameRef: preact.RefObject<ChessInstance | null>;
   onMove: (orig: string, dest: string, move: { san: string; from: string; to: string; promotion?: string }) => void;
   animateFrom?: { fen: string; from: string; to: string; onComplete: () => void } | null;
+  moveCount?: number;
 }
 
 function buildDests(game: ChessInstance): Map<string, string[]> {
@@ -43,8 +45,8 @@ function buildDests(game: ChessInstance): Map<string, string[]> {
 }
 
 export function Board({
-  fen, orientation, interactive, coordinates, highlights,
-  arrows, gameRef, onMove, animateFrom,
+  fen, orientation, interactive, movableColor, coordinates, highlights,
+  arrows, gameRef, onMove, animateFrom, moveCount,
 }: BoardProps): preact.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const cgRef = useRef<ChessgroundApi | null>(null);
@@ -52,8 +54,9 @@ export function Board({
   onMoveRef.current = onMove;
   const orientationRef = useRef(orientation);
   orientationRef.current = orientation;
-  const interactiveRef = useRef(interactive);
-  interactiveRef.current = interactive;
+  const movableColorRef = useRef(movableColor);
+  movableColorRef.current = movableColor;
+  const animPlayedRef = useRef<object | null>(null);
 
   // Mount Chessground once
   useEffect(() => {
@@ -73,23 +76,41 @@ export function Board({
       animation: { enabled: true, duration: 150 },
       movable: {
         free: false,
-        color: interactive ? orientation : undefined,
+        color: interactive ? (movableColor ?? orientation) : undefined,
         dests: game && interactive ? buildDests(game) : new Map(),
         showDests: true,
         events: {
           after: (orig: string, dest: string) => {
             const g = gameRef.current;
-            if (!g) return;
+            if (!g) {
+              // No game — resync board to prevent stuck state
+              cg.set({ movable: { dests: new Map() } });
+              return;
+            }
             const move = g.move({ from: orig, to: dest, promotion: 'q' });
-            if (!move) return;
+            if (!move) {
+              // Move rejected by chess.js — game state is out of sync with
+              // what Chessground displayed. Resync board to actual game state
+              // to prevent a permanently frozen board (dests was already
+              // cleared by Chessground's internal move handler).
+              const turnCol = g.turn() === 'w' ? 'white' : 'black';
+              const color = movableColorRef.current ?? orientationRef.current;
+              cg.set({
+                fen: g.fen(),
+                turnColor: turnCol,
+                movable: { color, dests: buildDests(g) },
+              });
+              return;
+            }
 
             const turnCol = g.turn() === 'w' ? 'white' : 'black';
+            const color = movableColorRef.current ?? orientationRef.current;
             cg.set({
               fen: g.fen(),
               turnColor: turnCol,
               movable: {
-                color: interactiveRef.current ? orientationRef.current : undefined,
-                dests: interactiveRef.current ? buildDests(g) : new Map(),
+                color,
+                dests: buildDests(g),
               },
               lastMove: [orig, dest],
             });
@@ -121,11 +142,11 @@ export function Board({
       fen,
       turnColor,
       movable: {
-        color: interactive ? orientation : undefined,
+        color: interactive ? (movableColor ?? orientation) : undefined,
         dests: game && interactive ? buildDests(game) : new Map(),
       },
     });
-  }, [fen, interactive, orientation, gameRef]);
+  }, [fen, interactive, orientation, movableColor, moveCount, gameRef]);
 
   // Sync orientation
   useEffect(() => {
@@ -158,6 +179,7 @@ export function Board({
   // Pre-move animation
   useEffect(() => {
     if (!animateFrom) return;
+    if (animPlayedRef.current === animateFrom) return;
     const cg = cgRef.current;
     if (!cg) return;
     const game = gameRef.current;
@@ -172,6 +194,7 @@ export function Board({
       });
 
       t2 = setTimeout(() => {
+        animPlayedRef.current = animateFrom;
         cg.set({
           animation: { duration: 150 },
           movable: {

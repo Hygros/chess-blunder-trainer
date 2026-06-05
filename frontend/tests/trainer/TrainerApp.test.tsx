@@ -7,7 +7,7 @@ const { mockChessground } = vi.hoisted(() => {
     setAutoShapes: vi.fn(),
     destroy: vi.fn(),
   };
-  return { mockCg, mockChessground: vi.fn(() => mockCg) };
+  return { mockCg, mockChessground: vi.fn(function() { return mockCg; }) };
 });
 
 vi.mock('@vendor/chessground', () => ({
@@ -52,23 +52,25 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   window.__features = {};
-  (globalThis as Record<string, unknown>).Chess = vi.fn(() => ({
-    fen: vi.fn(() => 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'),
-    turn: vi.fn(() => 'w'),
-    moves: vi.fn(() => []),
-    move: vi.fn(),
-    undo: vi.fn(),
-    history: vi.fn(() => []),
-    game_over: vi.fn(() => false),
-    in_check: vi.fn(() => false),
-    load: vi.fn(() => true),
-    board: vi.fn(() => []),
-    get: vi.fn(),
-    put: vi.fn(),
-    remove: vi.fn(),
-    pgn: vi.fn(() => ''),
-    load_pgn: vi.fn(() => true),
-  }));
+  (globalThis as Record<string, unknown>).Chess = vi.fn(function() {
+    return {
+      fen: vi.fn(() => 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'),
+      turn: vi.fn(() => 'w'),
+      moves: vi.fn(() => []),
+      move: vi.fn(),
+      undo: vi.fn(),
+      history: vi.fn(() => []),
+      game_over: vi.fn(() => false),
+      in_check: vi.fn(() => false),
+      load: vi.fn(() => true),
+      board: vi.fn(() => []),
+      get: vi.fn(),
+      put: vi.fn(),
+      remove: vi.fn(),
+      pgn: vi.fn(() => ''),
+      load_pgn: vi.fn(() => true),
+    };
+  });
 });
 
 describe('TrainerApp', () => {
