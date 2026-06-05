@@ -23,7 +23,7 @@ DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
 MAX_RESPONSE_CHARS = 1200
 
 # Bump this when the coach prompt/output contract changes materially.
-LLM_EXPLANATION_VERSION = 7
+LLM_EXPLANATION_VERSION = 8
 
 # In-process cache: keyed by (fen, blunder_uci, model, prompt hash).
 # Cleared only on process restart. Phase C (llm_explanation DB column)
@@ -51,6 +51,10 @@ PIECE_ON_SQUARE_RE = re.compile(
 )
 PIECE_NEAR_SQUARE_RE = re.compile(
     r"\b(pawn|pawns|queen|queens|rook|rooks|bishop|bishops|knight|knights|king|kings)\b(?:\s+\w+){0,3}\s+on\s+([a-h][1-8])\b",
+    re.IGNORECASE,
+)
+FORCED_KING_MOVE_RE = re.compile(
+    r"\b(forcing|forces|forced)\s+(the\s+)?king\s+to\s+move\b",
     re.IGNORECASE,
 )
 
@@ -588,6 +592,34 @@ def _has_unsupported_square_reference(
     return not referenced.issubset(allowed_squares)
 
 
+def _line_supports_forced_king_move(line: list[str] | None) -> bool:
+    moves = [move for move in (line or []) if move]
+    for idx, move in enumerate(moves):
+        if "+" not in move and "#" not in move:
+            continue
+        if idx + 1 >= len(moves):
+            continue
+        reply = moves[idx + 1].strip()
+        if reply.startswith("K"):
+            return True
+    return False
+
+
+def _has_unsupported_forced_king_move_claim(
+    candidate: str,
+    *,
+    best_line: list[str] | None,
+    refutation_line_san: list[str] | None,
+) -> bool:
+    if not FORCED_KING_MOVE_RE.search(candidate):
+        return False
+
+    return not (
+        _line_supports_forced_king_move(best_line)
+        or _line_supports_forced_king_move(refutation_line_san)
+    )
+
+
 def _clean_response(text: str) -> str | None:
     cleaned = text.strip()
     if not cleaned:
@@ -915,7 +947,11 @@ def explain_training_lesson(
             return False
         if _has_conflicting_piece_square_claim(candidate, square_piece_hints):
             return False
-        return True
+        return not _has_unsupported_forced_king_move_claim(
+            candidate,
+            best_line=best_line,
+            refutation_line_san=refutation_line_san,
+        )
 
     prompt = _build_prompt(
         fen=fen,

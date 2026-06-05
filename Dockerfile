@@ -12,7 +12,8 @@ ARG STOCKFISH_VERSION=sf_18
 # Install build dependencies with cache mount for apt
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    DEBIAN_FRONTEND=noninteractive DEBCONF_NOWARNINGS=yes apt-get update && \
+    DEBIAN_FRONTEND=noninteractive DEBCONF_NOWARNINGS=yes apt-get install -y --no-install-recommends \
     build-essential \
     git \
     ca-certificates \
@@ -27,7 +28,7 @@ WORKDIR /stockfish/src
 # Build for appropriate architecture with optimizations
 # Using cache mount for ccache could help but Stockfish uses its own build system
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        make -j$(nproc) profile-build ARCH=x86-64-modern COMP=gcc; \
+        make -j$(nproc) profile-build ARCH=x86-64-sse41-popcnt COMP=gcc; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
         make -j$(nproc) profile-build ARCH=armv8 COMP=gcc; \
     else \
@@ -50,6 +51,8 @@ RUN npm run build
 # Stage 3: Export dependencies to requirements.txt (separate stage for better caching)
 FROM python:3.13-slim AS deps-exporter
 
+ENV PIP_ROOT_USER_ACTION=ignore
+
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install uv
 
@@ -64,9 +67,13 @@ RUN uv export --frozen --no-dev --no-hashes --no-emit-project -o requirements.tx
 # Stage 3: Build Python dependencies
 FROM python:3.13-slim AS python-builder
 
+ENV PIP_ROOT_USER_ACTION=ignore
+ENV UV_LINK_MODE=copy
+
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    DEBIAN_FRONTEND=noninteractive DEBCONF_NOWARNINGS=yes apt-get update && \
+    DEBIAN_FRONTEND=noninteractive DEBCONF_NOWARNINGS=yes apt-get install -y --no-install-recommends \
     build-essential
 
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -98,7 +105,8 @@ FROM python:3.13-slim
 # Install runtime dependencies
 # Note: cache mounts don't help in final stage since we need to clean up apt lists
 # to keep the image small, and cleanup negates the cache benefit
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN DEBIAN_FRONTEND=noninteractive DEBCONF_NOWARNINGS=yes apt-get update && \
+    DEBIAN_FRONTEND=noninteractive DEBCONF_NOWARNINGS=yes apt-get install -y --no-install-recommends \
     libstdc++6 \
     wget \
     && rm -rf /var/lib/apt/lists/*
@@ -110,8 +118,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # future container-escape CVE would land as UID 0 on the host. UID 1000
 # is the typical default for host developer accounts so bind-mount
 # ownership lines up without chown gymnastics.
-RUN groupadd --system --gid 1000 appuser \
-    && useradd --system --uid 1000 --gid 1000 --home /app --no-create-home appuser \
+RUN groupadd --gid 1000 appuser \
+    && useradd --uid 1000 --gid 1000 --home /app --no-create-home --shell /usr/sbin/nologin appuser \
     && mkdir -p /app/data \
     && chown appuser:appuser /app /app/data
 

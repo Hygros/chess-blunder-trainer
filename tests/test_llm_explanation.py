@@ -108,6 +108,22 @@ def test_piece_square_claim_detects_conflict() -> None:
     )
 
 
+def test_forced_king_move_claim_detects_missing_evidence() -> None:
+    assert lesson._has_unsupported_forced_king_move_claim(
+        "Qxg5 wins material, forcing the king to move.",
+        best_line=["Qd2", "Nbd7", "f4"],
+        refutation_line_san=["Qxg5", "Nf3", "Qa5", "e5"],
+    )
+
+
+def test_forced_king_move_claim_allows_supported_evidence() -> None:
+    assert not lesson._has_unsupported_forced_king_move_claim(
+        "Qh7+ is strong, forcing the king to move.",
+        best_line=["Qh7+", "Kxh7", "Nf6+"],
+        refutation_line_san=None,
+    )
+
+
 def test_explain_training_lesson_retries_on_duplicate(monkeypatch) -> None:
     monkeypatch.setattr(lesson, "_enabled", lambda: True)
 
@@ -241,3 +257,30 @@ def test_explain_training_lesson_retries_on_pawn_exchange_square_conflict(
 
     assert text is not None
     assert "pawn exchange on c2" not in text.lower()
+
+
+def test_explain_training_lesson_retries_on_unsupported_forced_king_claim(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(lesson, "_enabled", lambda: True)
+
+    def _fake_cached_generate(_fen: str, _blunder_uci: str, prompt: str) -> str:
+        if "Strict coaching mode" in prompt:
+            return (
+                "Qxg5 wins material and leaves White with an immediate defensive problem. "
+                "When you see a loose piece, check forcing captures first."
+            )
+        return (
+            "Qxg5 wins material, forcing the king to move immediately. "
+            "When you see a loose piece, check forcing captures first."
+        )
+
+    monkeypatch.setattr(lesson, "_cached_generate", _fake_cached_generate)
+
+    args = _sample_args()
+    args["refutation_line_san"] = ["Qxg5", "Nf3", "Qa5", "e5"]
+
+    text = lesson.explain_training_lesson(**args)
+
+    assert text is not None
+    assert "forcing the king to move" not in text.lower()

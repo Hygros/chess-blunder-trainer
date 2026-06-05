@@ -1,5 +1,5 @@
 import tseslint from 'typescript-eslint';
-import vitest from 'eslint-plugin-vitest';
+import vitest from '@vitest/eslint-plugin';
 import reactHooks from 'eslint-plugin-react-hooks';
 import { resolve } from 'path';
 
