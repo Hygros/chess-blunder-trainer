@@ -12,8 +12,9 @@ from blunder_tutor.constants import (
     AUTH_MODE_CREDENTIALS,
     AUTH_MODE_NONE,
     DEFAULT_DB_PATH,
+    DEFAULT_ENGINE_CONCURRENCY,
     DEFAULT_ENGINE_DEPTH,
-    DEFAULT_ENGINE_TIME_LIMIT,
+    DEFAULT_ENGINE_HASH_MB,
     TEMPLATES_PATH,
 )
 from blunder_tutor.observability.config import (
@@ -37,6 +38,7 @@ _SESSION_MAX_AGE_DAYS = 30
 _SESSION_IDLE_DAYS = 7
 _SESSION_MAX_AGE_DEFAULT = _SECONDS_PER_DAY * _SESSION_MAX_AGE_DAYS
 _SESSION_IDLE_DEFAULT = _SECONDS_PER_DAY * _SESSION_IDLE_DAYS
+_STOCKFISH_TIME_MAX_SECONDS = 5.0
 
 # bcrypt cost ceiling per spec (4 is the floor; 31 is the ceiling, though
 # in practice anything past ~14 is too slow for a login path).
@@ -129,7 +131,9 @@ class AuthConfig(BaseModel):
 class EngineConfig(BaseModel):
     path: str
     depth: int = DEFAULT_ENGINE_DEPTH
-    time_limit: float = DEFAULT_ENGINE_TIME_LIMIT
+    time_limit: float | None = None
+    pool_size: int = DEFAULT_ENGINE_CONCURRENCY
+    hash_mb: int = DEFAULT_ENGINE_HASH_MB
 
 
 class ThrottleConfig(BaseModel):
@@ -234,6 +238,26 @@ def _parse_optional_positive_int(raw: str | None) -> int | None:
     return value
 
 
+def _parse_optional_positive_float(
+    raw: str | None,
+    key: str,
+    max_value: float | None = None,
+) -> float | None:
+    if raw is None:
+        return None
+    if raw == "":
+        raise ValueError(f"{key} is set to an empty string; unset it to use depth")
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{key} must be a positive number, got {raw!r}") from exc
+    if value <= 0:
+        raise ValueError(f"{key} must be > 0, got {value}")
+    if max_value is not None and value > max_value:
+        raise ValueError(f"{key} must be <= {max_value}, got {value}")
+    return value
+
+
 def get_engine_path(environ: Mapping) -> str:
     engine_path = environ.get("STOCKFISH_BINARY")
     if engine_path is not None:
@@ -254,6 +278,27 @@ def config_factory(parsed_args: argparse.Namespace, environ: Mapping) -> AppConf
     final_engine_path = (
         parsed_args and parsed_args.engine_path or get_engine_path(environ)
     )
+    engine_depth = _parse_positive_int(
+        environ,
+        "STOCKFISH_DEPTH",
+        DEFAULT_ENGINE_DEPTH,
+    )
+    engine_time_limit = _parse_optional_positive_float(
+        environ.get("STOCKFISH_TIME"),
+        "STOCKFISH_TIME",
+        max_value=_STOCKFISH_TIME_MAX_SECONDS,
+    )
+    engine_pool_size = _parse_positive_int(
+        environ,
+        "ENGINE_POOL_SIZE",
+        DEFAULT_ENGINE_CONCURRENCY,
+    )
+    engine_hash_mb = _parse_positive_int(
+        environ,
+        "STOCKFISH_HASH_MB",
+        DEFAULT_ENGINE_HASH_MB,
+    )
+
     throttle = ThrottleConfig()
     throttle_env = environ.get("DEMO_THROTTLE_RATE")
     if throttle_env:
@@ -286,6 +331,10 @@ def config_factory(parsed_args: argparse.Namespace, environ: Mapping) -> AppConf
         engine_path=final_engine_path,
         engine=EngineConfig(
             path=final_engine_path,
+            depth=engine_depth,
+            time_limit=engine_time_limit,
+            pool_size=engine_pool_size,
+            hash_mb=engine_hash_mb,
         ),
         demo_mode=parse_bool(environ.get("DEMO_MODE"), default=False),
         vite_dev=parse_bool(environ.get("VITE_DEV"), default=False),

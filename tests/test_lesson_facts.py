@@ -350,7 +350,13 @@ class TestFallbackExplanation:
             game_phase="opening",
             lesson_facts=facts,
         )
-        assert "When you see" in result or "If you see" in result
+        assert (
+            "When you see" in result
+            or "If you see" in result
+            or "Before playing" in result
+            or "The habit to build" in result
+            or "Next time you want to" in result
+        )
         assert "priority" in result.lower() or "forcing" in result.lower()
 
 
@@ -427,7 +433,7 @@ class TestPromptIncludesLessonFacts:
         )
         # Should still work, just without structured facts block
         assert "Structured lesson facts" not in prompt
-        assert "Engine facts you may use" in prompt
+        assert "Authoritative facts you may use" in prompt
 
 
 class TestUnsupportedSquareReferences:

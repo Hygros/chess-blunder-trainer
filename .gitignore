@@ -42,3 +42,6 @@ blunder_tutor/web/static/dist/
 # Profiling data
 *cprofile.txt
 *.prof
+
+# Notes
+UPSTREAM_MERGE.md

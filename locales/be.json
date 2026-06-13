@@ -601,7 +601,6 @@
   "trainer.debug.copied": "Скапіравана!",
   "trainer.debug.copy": "Адладка",
   "trainer.debug.copy_title": "Скапіраваць адладачную інфармацыю ў буфер абмену",
-  "trainer.details.explanation": "Чаму гэта быў грубы промах",
   "trainer.details.tactical": "Тактычныя дэталі",
   "trainer.empty.analyzing_action": "Паглядзець прагрэс",
   "trainer.empty.analyzing_message": "Вашы партыі імпартуюцца і аналізуюцца. Гэта можа заняць некаторы час — задачы з'явяцца аўтаматычна.",
@@ -671,6 +670,9 @@
   "trainer.stats.correct": "Правільныя",
   "trainer.stats.incorrect": "Няправільныя",
   "trainer.toggle.show_arrows": "Паказаць стрэлкі хадоў",
+  "trainer.toggle.show_best_arrow": "Паказаць стрэлку найлепшага ходу",
+  "trainer.toggle.show_engine_best_arrow": "Паказаць стрэлку найлепшага ходу рухавіка",
+  "trainer.toggle.show_blunder_arrow": "Паказаць стрэлку памылковага ходу",
   "trainer.toggle.show_coordinates": "Паказваць каардынаты на дошцы",
   "trainer.toggle.show_tactics": "Падсвяціць тактычны матыў (пасля раскрыцця)",
   "trainer.toggle.show_threats": "Паказаць пагрозы (вісячыя фігуры, звязкі, шахі)",
@@ -713,5 +715,11 @@
   "traps.times_fell": "разоў патрапілі",
   "traps.title": "Пасткі і атакі",
   "traps.view_all": "Усе пасткі",
-  "traps.your_games": "Вашы партыі"
+  "traps.your_games": "Вашы партыі",
+  "explanation.bundle.consequence_cp_loss": "Гэты ход губляе прыкладна {loss} пешак перавагі.",
+  "explanation.bundle.refutation_line": "Супернік можа адказаць так: {line}",
+  "trainer.explanation.ai": "Падказка трэнера (AI)",
+  "trainer.explanation.consequence": "Чаму гэта быў грубы промах",
+  "trainer.explanation.refutation": "Што можа згуляць супернік",
+  "trainer.explanation.comparison": "Што было лепш"
 }

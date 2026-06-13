@@ -22,12 +22,16 @@ interface BoardStateResult {
 export function useBoardState(
   game: ChessInstance | null,
   showArrows: boolean,
+  showBestArrow: boolean,
+  showEngineBestArrow: boolean,
+  showBlunderArrow: boolean,
   showThreats: boolean,
   showTactics: boolean,
   userMoveUci: string | null,
+  engineBestMoveUci: string | null,
 ): BoardStateResult {
   const { state } = useContext(TrainerContext);
-  const { puzzle, bestRevealed, fen } = state;
+  const { puzzle, bestRevealed, fen, continuePlaying } = state;
 
   const highlights = useMemo((): HighlightMap => {
     const maps: HighlightMap[] = [buildBlunderHighlight(puzzle)];
@@ -54,25 +58,49 @@ export function useBoardState(
   const arrows = useMemo((): Arrow[] => {
     if (!showArrows || !puzzle) return [];
     const result: Arrow[] = [];
+    const isVsEngine = continuePlaying === 'vs-engine';
 
-    if (puzzle.blunder_uci && puzzle.blunder_uci.length >= 4) {
-      result.push({
-        from: puzzle.blunder_uci.slice(0, 2),
-        to: puzzle.blunder_uci.slice(2, 4),
-        color: 'red',
-      });
+    if (!isVsEngine) {
+      if (showBlunderArrow && puzzle.blunder_uci && puzzle.blunder_uci.length >= 4) {
+        result.push({
+          from: puzzle.blunder_uci.slice(0, 2),
+          to: puzzle.blunder_uci.slice(2, 4),
+          color: 'red',
+        });
+      }
+
+      if (showBestArrow && bestRevealed && puzzle.best_move_uci && puzzle.best_move_uci.length >= 4) {
+        result.push({
+          from: puzzle.best_move_uci.slice(0, 2),
+          to: puzzle.best_move_uci.slice(2, 4),
+          color: 'green',
+        });
+      }
     }
 
-    if (bestRevealed && puzzle.best_move_uci && puzzle.best_move_uci.length >= 4) {
-      result.push({
-        from: puzzle.best_move_uci.slice(0, 2),
-        to: puzzle.best_move_uci.slice(2, 4),
-        color: 'green',
-      });
+    if (isVsEngine && showEngineBestArrow && engineBestMoveUci && engineBestMoveUci.length >= 4) {
+      const sideToMove = fen.split(' ')[1] === 'b' ? 'black' : 'white';
+      if (sideToMove === puzzle.player_color) {
+        result.push({
+          from: engineBestMoveUci.slice(0, 2),
+          to: engineBestMoveUci.slice(2, 4),
+          color: 'green',
+        });
+      }
     }
 
     return result;
-  }, [showArrows, puzzle, bestRevealed]);
+  }, [
+    showArrows,
+    showBestArrow,
+    showEngineBestArrow,
+    showBlunderArrow,
+    puzzle,
+    bestRevealed,
+    continuePlaying,
+    fen,
+    engineBestMoveUci,
+  ]);
 
   return { highlights, arrows };
 }

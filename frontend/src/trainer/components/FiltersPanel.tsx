@@ -172,6 +172,18 @@ export function FiltersPanel({ filters }: FiltersPanelProps): preact.JSX.Element
                   <input type="checkbox" id="showArrows" checked={state.showArrows} onChange={(e) => { filters.setShowArrows(e.currentTarget.checked); }} />
                   <label for="showArrows">{t('trainer.toggle.show_arrows')}</label>
                 </div>
+                <div class="arrow-toggle">
+                  <input type="checkbox" id="showBestArrow" checked={state.showBestArrow} onChange={(e) => { filters.setShowBestArrow(e.currentTarget.checked); }} />
+                  <label for="showBestArrow">{t('trainer.toggle.show_best_arrow')}</label>
+                </div>
+                <div class="arrow-toggle">
+                  <input type="checkbox" id="showEngineBestArrow" checked={state.showEngineBestArrow} onChange={(e) => { filters.setShowEngineBestArrow(e.currentTarget.checked); }} />
+                  <label for="showEngineBestArrow">{t('trainer.toggle.show_engine_best_arrow')}</label>
+                </div>
+                <div class="arrow-toggle">
+                  <input type="checkbox" id="showBlunderArrow" checked={state.showBlunderArrow} onChange={(e) => { filters.setShowBlunderArrow(e.currentTarget.checked); }} />
+                  <label for="showBlunderArrow">{t('trainer.toggle.show_blunder_arrow')}</label>
+                </div>
                 {hasThreats && (
                   <div class="arrow-toggle">
                     <input type="checkbox" id="showThreats" checked={state.showThreats} onChange={(e) => { filters.setShowThreats(e.currentTarget.checked); }} />

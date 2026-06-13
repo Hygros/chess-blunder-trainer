@@ -30,11 +30,18 @@ describe('ResultCard', () => {
     bestRevealed: true,
     moveHistory: [] as string[],
     lineViewIndex: 0,
-    activeLineType: 'none' as const,
+    activeLineType: null,
     onPlayBest: vi.fn(),
     onNavigateLine: vi.fn(),
     onNext: vi.fn(),
     onClose: vi.fn(),
+    continuePlaying: 'off' as const,
+    onStartContinuePlay: vi.fn(),
+    onStopContinuePlay: vi.fn(),
+    onContinueUndo: vi.fn(),
+    onContinueRedo: vi.fn(),
+    canContinueUndo: false,
+    canContinueRedo: false,
   };
 
   it('renders when visible', () => {
@@ -59,12 +66,24 @@ describe('ResultCard', () => {
     render(<ResultCard {...defaults} />);
     expect(screen.getByText('fork')).not.toBeNull();
     const tacticalDetails = document.querySelector('#tacticalDetails') as HTMLDetailsElement;
-    expect(tacticalDetails?.open).toBe(true);
+    expect(tacticalDetails.open).toBe(true);
   });
 
   it('shows opponent refutation label only once', () => {
     render(<ResultCard {...defaults} />);
     expect(screen.getAllByText('trainer.explanation.refutation', { exact: false })).toHaveLength(1);
+  });
+
+  it('does not mark a refutation move as active at base position', () => {
+    render(<ResultCard {...defaults} activeLineType="refutation" lineViewIndex={0} />);
+    expect(document.querySelector('.line-move-span.refutation.active')).toBeNull();
+  });
+
+  it('marks blunder move active at first refutation step', () => {
+    render(<ResultCard {...defaults} activeLineType="refutation" lineViewIndex={1} />);
+    const refutationMoves = document.querySelectorAll('.line-move-span.refutation');
+    const firstRefutationMove = refutationMoves.item(0);
+    expect(firstRefutationMove.classList.contains('active')).toBe(true);
   });
 
   it('calls onNext on next button click', () => {

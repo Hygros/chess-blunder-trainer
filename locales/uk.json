@@ -601,7 +601,6 @@
   "trainer.debug.copied": "Скопійовано!",
   "trainer.debug.copy": "Відладка",
   "trainer.debug.copy_title": "Скопіювати відлагоджувальну інформацію до буфера обміну",
-  "trainer.details.explanation": "Чому це був промах",
   "trainer.details.tactical": "Тактичні деталі",
   "trainer.empty.analyzing_action": "Переглянути прогрес",
   "trainer.empty.analyzing_message": "Ваші партії імпортуються та аналізуються. Це може зайняти деякий час — задачі з'являться автоматично.",
@@ -671,6 +670,9 @@
   "trainer.stats.correct": "Правильні",
   "trainer.stats.incorrect": "Неправильні",
   "trainer.toggle.show_arrows": "Показати стрілки ходів",
+  "trainer.toggle.show_best_arrow": "Показати стрілку найкращого ходу",
+  "trainer.toggle.show_engine_best_arrow": "Показати стрілку найкращого ходу рушія",
+  "trainer.toggle.show_blunder_arrow": "Показати стрілку поганого ходу",
   "trainer.toggle.show_coordinates": "Показувати координати на дошці",
   "trainer.toggle.show_tactics": "Підсвітити тактичний мотив (після розкриття)",
   "trainer.toggle.show_threats": "Показати загрози (висячі фігури, зв'язки, шахи)",
@@ -713,5 +715,11 @@
   "traps.times_fell": "разів потрапили",
   "traps.title": "Пастки та атаки",
   "traps.view_all": "Усі пастки",
-  "traps.your_games": "Ваші партії"
+  "traps.your_games": "Ваші партії",
+  "explanation.bundle.consequence_cp_loss": "Цей хід втрачає перевагу приблизно на {loss} пішаків.",
+  "explanation.bundle.refutation_line": "Суперник може відповісти так: {line}",
+  "trainer.explanation.ai": "Підказка тренера (AI)",
+  "trainer.explanation.consequence": "Чому це був грубий прорахунок",
+  "trainer.explanation.refutation": "Що може зіграти суперник",
+  "trainer.explanation.comparison": "Що було краще"
 }

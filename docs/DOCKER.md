@@ -28,10 +28,43 @@ Optionally create a `.env` file (see `.env.example`):
 |---|---|---|
 | `LICHESS_USERNAME` | — | Your Lichess username |
 | `CHESSCOM_USERNAME` | — | Your Chess.com username |
-| `STOCKFISH_DEPTH` | `14` | Engine search depth (10–20). Higher = more accurate, slower |
+| `STOCKFISH_DEPTH` | `13` | Engine search depth (10–20). Higher = more accurate, slower |
+| `STOCKFISH_TIME` | `5` | Per-position time limit in seconds (max `5`) |
+| `ENGINE_POOL_SIZE` | `4` | Number of Stockfish processes. Lower = less RAM, less throughput |
+| `STOCKFISH_HASH_MB` | `128` | Hash memory per Stockfish process in MB |
+| `CACHE_ENABLED` | `true` | Toggle in-memory API cache |
+| `CACHE_DEFAULT_TTL` | `300` | Cache TTL in seconds |
 | `PORT` | `8000` | Server port |
 
 Usernames can also be set through the web UI on first launch.
+
+## Balanced Performance Preset
+
+If your container currently uses around 1.4 GB RAM, this preset usually keeps
+analysis responsive while reducing peak memory:
+
+```env
+STOCKFISH_DEPTH=13
+STOCKFISH_TIME=5
+ENGINE_POOL_SIZE=2
+STOCKFISH_HASH_MB=96
+CACHE_ENABLED=true
+CACHE_DEFAULT_TTL=240
+```
+
+For Docker Compose, also set service limits:
+
+```yaml
+mem_limit: 1600m
+mem_reservation: 1100m
+cpus: 2.0
+```
+
+Validate with:
+
+```bash
+docker stats blunder-tutor-local
+```
 
 ## Data Persistence
 

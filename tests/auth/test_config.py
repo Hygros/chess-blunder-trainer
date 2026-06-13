@@ -32,6 +32,43 @@ class TestAuthConfigDefaults:
         assert config.auth.session_idle_seconds == 60 * 60 * 24 * 7
 
 
+class TestEngineConfigParsing:
+    def test_defaults_use_depth_mode(self):
+        config = config_factory(_args(), _base_env())
+        assert config.engine.depth == 11
+        assert config.engine.time_limit is None
+        assert config.engine.pool_size == 4
+        assert config.engine.hash_mb == 128
+
+    def test_parses_engine_env_overrides(self):
+        config = config_factory(
+            _args(),
+            _base_env(
+                STOCKFISH_DEPTH="13",
+                STOCKFISH_TIME="1.5",
+                ENGINE_POOL_SIZE="2",
+                STOCKFISH_HASH_MB="96",
+            ),
+        )
+        assert config.engine.depth == 13
+        assert config.engine.time_limit == 1.5
+        assert config.engine.pool_size == 2
+        assert config.engine.hash_mb == 96
+
+    def test_rejects_invalid_engine_values(self):
+        with pytest.raises(ValueError, match="STOCKFISH_TIME"):
+            config_factory(_args(), _base_env(STOCKFISH_TIME="0"))
+        with pytest.raises(ValueError, match="ENGINE_POOL_SIZE"):
+            config_factory(_args(), _base_env(ENGINE_POOL_SIZE="0"))
+
+    def test_stockfish_time_upper_bound_is_five_seconds(self):
+        config = config_factory(_args(), _base_env(STOCKFISH_TIME="5"))
+        assert config.engine.time_limit == 5.0
+
+        with pytest.raises(ValueError, match="STOCKFISH_TIME"):
+            config_factory(_args(), _base_env(STOCKFISH_TIME="5.1"))
+
+
 class TestAuthConfigCredentialsMode:
     def test_happy_path(self):
         config = config_factory(

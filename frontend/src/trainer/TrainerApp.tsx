@@ -172,7 +172,14 @@ function TrainerCore(): preact.JSX.Element {
   const { playBestMove, navigateLine, navigateLineTyped } = useLinePlayer(gameRef);
 
   // Continue-play (vs engine / vs self)
-  const { startContinuePlay, stopContinuePlay, handleContinueMove, refreshEval, engineEvalCp } = useContinuePlay(gameRef);
+  const {
+    startContinuePlay,
+    stopContinuePlay,
+    handleContinueMove,
+    refreshEval,
+    engineEvalCp,
+    engineBestMoveUci,
+  } = useContinuePlay(gameRef);
 
   // WebSocket for stats updates
   const ws = useWebSocket(['stats.updated']);
@@ -189,10 +196,30 @@ function TrainerCore(): preact.JSX.Element {
   const { highlights, arrows } = useBoardState(
     gameRef.current,
     filtersApi.state.showArrows,
+    filtersApi.state.showBestArrow,
+    filtersApi.state.showEngineBestArrow,
+    filtersApi.state.showBlunderArrow,
     filtersApi.state.showThreats,
     filtersApi.state.showTactics,
     userMoveUci,
+    engineBestMoveUci,
   );
+
+  const handleNavigateLineTyped = useCallback((lineType: 'best' | 'refutation', direction: 'forward' | 'back') => {
+    if (lineType === 'refutation' && filtersApi.state.showBestArrow) {
+      filtersApi.setShowBestArrow(false);
+    }
+    if (lineType === 'best' && filtersApi.state.showBlunderArrow) {
+      filtersApi.setShowBlunderArrow(false);
+    }
+    navigateLineTyped(lineType, direction);
+  }, [
+    filtersApi.state.showBestArrow,
+    filtersApi.state.showBlunderArrow,
+    filtersApi.setShowBestArrow,
+    filtersApi.setShowBlunderArrow,
+    navigateLineTyped,
+  ]);
 
   // Pre-move animation config
   const animateFrom = useMemo(() => {
@@ -377,6 +404,7 @@ function TrainerCore(): preact.JSX.Element {
   const handleNext = useCallback(() => {
     trackEvent('Puzzle Next');
     setUserMoveUci(null);
+    filtersApi.setShowBlunderArrow(true);
     void puzzleApi.loadPuzzle(filtersApi.getFilterParams());
   }, [puzzleApi, filtersApi]);
 
@@ -438,18 +466,30 @@ function TrainerCore(): preact.JSX.Element {
 
   // Empty state / error
   if (state.emptyState || state.error) {
+    const emptyStateKey = state.emptyState === 'no_blunders_filtered'
+      ? 'no_matching'
+      : (state.emptyState ?? 'default');
+
     return (
       <div class="trainer-page">
-        <div class="empty-state" id="emptyState">
-          <h2>{state.error || t(`trainer.empty.${state.emptyState ?? 'default'}_title`)}</h2>
-          <p>{t(`trainer.empty.${state.emptyState ?? 'default'}_message`)}</p>
-          {state.emptyState === 'no_blunders_filtered' ? (
-            <button onClick={filtersApi.clearAllFilters}>
-              {t('trainer.empty.no_matching_action')}
-            </button>
-          ) : (
-            <a href="/management">{t(`trainer.empty.${state.emptyState ?? 'default'}_action`)}</a>
-          )}
+        <div class="trainer-main" id="trainerLayout">
+          <div class="trainer-board-area">
+            <div class="empty-state" id="emptyState">
+              <h2>{state.error || t(`trainer.empty.${emptyStateKey}_title`)}</h2>
+              <p>{t(`trainer.empty.${emptyStateKey}_message`)}</p>
+              {state.emptyState === 'no_blunders_filtered' ? (
+                <button onClick={filtersApi.clearAllFilters}>
+                  {t('trainer.empty.no_matching_action')}
+                </button>
+              ) : (
+                <a href="/management">{t(`trainer.empty.${emptyStateKey}_action`)}</a>
+              )}
+            </div>
+          </div>
+
+          <div class="trainer-panel">
+            <FiltersPanel filters={filtersApi} />
+          </div>
         </div>
       </div>
     );
@@ -528,7 +568,7 @@ function TrainerCore(): preact.JSX.Element {
           lineViewIndex={state.lineViewIndex}
           activeLineType={state.activeLineType}
           onPlayBest={playBestMove}
-          onNavigateLine={navigateLineTyped}
+          onNavigateLine={handleNavigateLineTyped}
           onNext={handleNext}
           onClose={() => { dispatch({ type: 'SET_RESULT_VISIBLE', visible: false }); }}
           continuePlaying={state.continuePlaying}

@@ -131,7 +131,7 @@ export function ResultCard({
                       <button
                         class="line-nav-btn"
                         onClick={() => { onNavigateLine('refutation', 'forward'); }}
-                        disabled={activeLineType === 'refutation' && lineViewIndex >= puzzle.refutation_line_san!.length}
+                        disabled={activeLineType === 'refutation' && lineViewIndex >= displayedRefutationLine.length}
                         title="▶"
                       >▶</button>
                     </div>
@@ -140,7 +140,7 @@ export function ResultCard({
                     {displayedRefutationLine.map((san, i) => (
                       <span
                         key={i}
-                        class={`line-move-span refutation${activeLineType === 'refutation' && lineViewIndex === i ? ' active' : ''}`}
+                        class={`line-move-span refutation${activeLineType === 'refutation' && lineViewIndex === i + 1 ? ' active' : ''}`}
                       >
                         {san}
                       </span>

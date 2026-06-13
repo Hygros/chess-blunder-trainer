@@ -59,4 +59,19 @@ describe('Board', () => {
     rerender(<Board {...defaultProps} coordinates={true} />);
     expect(board?.classList.contains('hide-coords')).toBe(false);
   });
+
+  it('maps blunder and best arrows to correct brushes', () => {
+    render(<Board
+      {...defaultProps}
+      arrows={[
+        { from: 'e2', to: 'e4', color: 'red' },
+        { from: 'd2', to: 'd4', color: 'green' },
+      ]}
+    />);
+
+    expect(mockCg.setAutoShapes).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ orig: 'e2', dest: 'e4', brush: 'red' }),
+      expect.objectContaining({ orig: 'd2', dest: 'd4', brush: 'green' }),
+    ]));
+  });
 });

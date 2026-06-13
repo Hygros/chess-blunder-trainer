@@ -14,7 +14,12 @@ services:
       - LICHESS_USERNAME=${LICHESS_USERNAME:-}
       - CHESSCOM_USERNAME=${CHESSCOM_USERNAME:-}
       - STOCKFISH_BINARY=/usr/local/bin/stockfish
-      - STOCKFISH_DEPTH=${STOCKFISH_DEPTH:-14}
+      - STOCKFISH_DEPTH=${STOCKFISH_DEPTH:-13}
+      - STOCKFISH_TIME=${STOCKFISH_TIME:-5}
+      - ENGINE_POOL_SIZE=${ENGINE_POOL_SIZE:-2}
+      - STOCKFISH_HASH_MB=${STOCKFISH_HASH_MB:-96}
+      - CACHE_ENABLED=${CACHE_ENABLED:-true}
+      - CACHE_DEFAULT_TTL=${CACHE_DEFAULT_TTL:-240}
       - EXPLANATION_LLM_ENABLED=${EXPLANATION_LLM_ENABLED:-true}
       - LLM_PROVIDER=${LLM_PROVIDER:-groq}
       - GROQ_API_KEY=${GROQ_API_KEY:-}
@@ -23,6 +28,9 @@ services:
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434/api/generate}
       - HOST=0.0.0.0
       - PORT=8000
+    mem_limit: 1600m
+    mem_reservation: 1100m
+    cpus: 2.0
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8000/health"]

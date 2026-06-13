@@ -115,11 +115,8 @@ export function useLinePlayer(
       startFen = puzzle.fen;
     } else {
       if (!puzzle.refutation_line_san || puzzle.refutation_line_san.length === 0) return;
-      lineSans = puzzle.refutation_line_san;
-      const blunderGame = new Chess(puzzle.fen);
-      const blunderResult = blunderGame.move(puzzle.blunder_san);
-      if (!blunderResult) return;
-      startFen = blunderGame.fen();
+      lineSans = [puzzle.blunder_san, ...puzzle.refutation_line_san];
+      startFen = puzzle.fen;
     }
 
     // If switching line type or positions not built yet, build them

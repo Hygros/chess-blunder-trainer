@@ -13,6 +13,9 @@ function makeFilters(overrides?: Partial<FiltersAPI>): FiltersAPI {
       color: 'both',
       showCoordinates: true,
       showArrows: true,
+      showBestArrow: true,
+      showEngineBestArrow: false,
+      showBlunderArrow: true,
       showThreats: false,
       showTactics: true,
       filtersCollapsed: false,
@@ -29,6 +32,9 @@ function makeFilters(overrides?: Partial<FiltersAPI>): FiltersAPI {
     setColor: vi.fn(),
     setShowCoordinates: vi.fn(),
     setShowArrows: vi.fn(),
+    setShowBestArrow: vi.fn(),
+    setShowEngineBestArrow: vi.fn(),
+    setShowBlunderArrow: vi.fn(),
     setShowThreats: vi.fn(),
     setShowTactics: vi.fn(),
     toggleFiltersCollapsed: vi.fn(),
@@ -71,5 +77,19 @@ describe('FiltersPanel', () => {
     const badge = container.querySelector('.filters-count-badge');
     expect(badge).not.toBeNull();
     expect((badge as HTMLElement).textContent).toBe('3 active');
+  });
+
+  it('calls separate arrow toggle setters', () => {
+    const filters = makeFilters();
+    render(<FiltersPanel filters={filters} />);
+
+    fireEvent.click(screen.getByLabelText('trainer.toggle.show_best_arrow', { exact: false }));
+    expect(filters.setShowBestArrow).toHaveBeenCalledWith(false);
+
+    fireEvent.click(screen.getByLabelText('trainer.toggle.show_engine_best_arrow', { exact: false }));
+    expect(filters.setShowEngineBestArrow).toHaveBeenCalledWith(true);
+
+    fireEvent.click(screen.getByLabelText('trainer.toggle.show_blunder_arrow', { exact: false }));
+    expect(filters.setShowBlunderArrow).toHaveBeenCalledWith(false);
   });
 });

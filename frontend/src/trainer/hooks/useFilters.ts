@@ -13,6 +13,9 @@ interface FilterState {
   color: string;
   showCoordinates: boolean;
   showArrows: boolean;
+  showBestArrow: boolean;
+  showEngineBestArrow: boolean;
+  showBlunderArrow: boolean;
   showThreats: boolean;
   showTactics: boolean;
   filtersCollapsed: boolean;
@@ -29,6 +32,9 @@ const SK = {
   boardSettingsCollapsed: STORAGE_KEYS.trainerBoardSettingsCollapsed,
   showCoordinates: STORAGE_KEYS.trainerShowCoordinates,
   showArrows: STORAGE_KEYS.trainerShowArrows,
+  showBestArrow: STORAGE_KEYS.trainerShowBestArrow,
+  showEngineBestArrow: STORAGE_KEYS.trainerShowEngineBestArrow,
+  showBlunderArrow: STORAGE_KEYS.trainerShowBlunderArrow,
   showThreats: STORAGE_KEYS.trainerShowThreats,
   showTactics: STORAGE_KEYS.trainerShowTactics,
 } as const;
@@ -36,6 +42,12 @@ const SK = {
 function loadBool(key: string, defaultVal: boolean): boolean {
   const raw = localStorage.getItem(key);
   if (raw === null) return defaultVal;
+  return raw === 'true';
+}
+
+function loadBoolWithFallback(key: string, fallbackVal: boolean): boolean {
+  const raw = localStorage.getItem(key);
+  if (raw === null) return fallbackVal;
   return raw === 'true';
 }
 
@@ -60,6 +72,9 @@ export interface FiltersAPI {
   setColor: (color: string) => void;
   setShowCoordinates: (enabled: boolean) => void;
   setShowArrows: (enabled: boolean) => void;
+  setShowBestArrow: (enabled: boolean) => void;
+  setShowEngineBestArrow: (enabled: boolean) => void;
+  setShowBlunderArrow: (enabled: boolean) => void;
   setShowThreats: (enabled: boolean) => void;
   setShowTactics: (enabled: boolean) => void;
   toggleFiltersCollapsed: () => void;
@@ -67,19 +82,25 @@ export interface FiltersAPI {
 }
 
 export function useFilters(onFilterChange: () => void): FiltersAPI {
-  const [state, setState] = useState<FilterState>(() => ({
-    phases: loadFromStorage(SK.phases, DEFAULT_PHASES),
-    gameTypes: loadFromStorage(SK.gameTypes, DEFAULT_GAME_TYPES),
-    difficulties: loadFromStorage(SK.difficulties, DEFAULT_DIFFICULTIES),
-    tacticalPattern: loadString(SK.tactical, '') || null,
-    color: loadString(SK.color, 'both'),
-    showCoordinates: loadBool(SK.showCoordinates, true),
-    showArrows: loadBool(SK.showArrows, true),
-    showThreats: loadBool(SK.showThreats, false),
-    showTactics: loadBool(SK.showTactics, true),
-    filtersCollapsed: loadBool(SK.filtersCollapsed, false),
-    boardSettingsCollapsed: loadBool(SK.boardSettingsCollapsed, false),
-  }));
+  const [state, setState] = useState<FilterState>(() => {
+    const showArrows = loadBool(SK.showArrows, true);
+    return {
+      phases: loadFromStorage(SK.phases, DEFAULT_PHASES),
+      gameTypes: loadFromStorage(SK.gameTypes, DEFAULT_GAME_TYPES),
+      difficulties: loadFromStorage(SK.difficulties, DEFAULT_DIFFICULTIES),
+      tacticalPattern: loadString(SK.tactical, '') || null,
+      color: loadString(SK.color, 'both'),
+      showCoordinates: loadBool(SK.showCoordinates, true),
+      showArrows,
+      showBestArrow: loadBoolWithFallback(SK.showBestArrow, showArrows),
+      showEngineBestArrow: loadBool(SK.showEngineBestArrow, false),
+      showBlunderArrow: loadBoolWithFallback(SK.showBlunderArrow, showArrows),
+      showThreats: loadBool(SK.showThreats, false),
+      showTactics: loadBool(SK.showTactics, true),
+      filtersCollapsed: loadBool(SK.filtersCollapsed, false),
+      boardSettingsCollapsed: loadBool(SK.boardSettingsCollapsed, false),
+    };
+  });
 
   const persist = useCallback((key: string, value: unknown) => {
     if (Array.isArray(value) || typeof value === 'object') {
@@ -127,6 +148,21 @@ export function useFilters(onFilterChange: () => void): FiltersAPI {
   const setShowArrows = useCallback((enabled: boolean) => {
     setState(s => ({ ...s, showArrows: enabled }));
     persist(SK.showArrows, enabled);
+  }, [persist]);
+
+  const setShowBestArrow = useCallback((enabled: boolean) => {
+    setState(s => ({ ...s, showBestArrow: enabled }));
+    persist(SK.showBestArrow, enabled);
+  }, [persist]);
+
+  const setShowEngineBestArrow = useCallback((enabled: boolean) => {
+    setState(s => ({ ...s, showEngineBestArrow: enabled }));
+    persist(SK.showEngineBestArrow, enabled);
+  }, [persist]);
+
+  const setShowBlunderArrow = useCallback((enabled: boolean) => {
+    setState(s => ({ ...s, showBlunderArrow: enabled }));
+    persist(SK.showBlunderArrow, enabled);
   }, [persist]);
 
   const setShowThreats = useCallback((enabled: boolean) => {
@@ -207,7 +243,8 @@ export function useFilters(onFilterChange: () => void): FiltersAPI {
   return {
     state, getFilterParams, hasActiveFilters, activeFilterCount, clearAllFilters,
     setPhases, setGameTypes, setDifficulties, setTacticalPattern, setColor,
-    setShowCoordinates, setShowArrows, setShowThreats, setShowTactics,
+    setShowCoordinates, setShowArrows, setShowBestArrow, setShowEngineBestArrow,
+    setShowBlunderArrow, setShowThreats, setShowTactics,
     toggleFiltersCollapsed, toggleBoardSettingsCollapsed,
   };
 }

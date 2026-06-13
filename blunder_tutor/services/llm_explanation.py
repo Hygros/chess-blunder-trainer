@@ -6,6 +6,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from typing import Any
 
 import chess
@@ -21,9 +22,10 @@ DEFAULT_TIMEOUT_SECONDS = 120
 DEFAULT_MODEL = "llama3.1:latest"
 DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
 MAX_RESPONSE_CHARS = 1200
+MAX_SENTENCE_WORDS = 40
 
 # Bump this when the coach prompt/output contract changes materially.
-LLM_EXPLANATION_VERSION = 9
+LLM_EXPLANATION_VERSION = 11
 
 # In-process cache: keyed by (fen, blunder_uci, model, prompt hash).
 # Cleared only on process restart. Phase C (llm_explanation DB column)
@@ -36,7 +38,10 @@ SIMILARITY_THRESHOLD = 0.72
 TRANSFER_RULE_MARKERS = (
     "when you see",
     "if you see",
+    "before playing",
+    "the habit to build",
     "next time",
+    "next time you want to",
     "ask yourself",
 )
 COACH_HEADING_RE = re.compile(
@@ -57,6 +62,23 @@ FORCED_KING_MOVE_RE = re.compile(
     r"\b(forcing|forces|forced)\s+(?:the\s+)?(?:(?:opponent|player|your|their)(?:'s|s)?\s+)?king\s+to\s+move\b",
     re.IGNORECASE,
 )
+CHECK_CLAIM_RE = re.compile(
+    r"\b(with check|gives check|give check|delivers check|deliver check|forcing check|forced check|checks the king|walks into check|allow(?:s|ed)?(?:\s+\w+){0,5}\s+check)\b",
+    re.IGNORECASE,
+)
+CAPTURE_CLAIM_RE = re.compile(
+    r"\b(captures?|capturing|takes?|took|wins? material|wins? a piece|wins? the piece|loses? material)\b",
+    re.IGNORECASE,
+)
+MATE_CLAIM_RE = re.compile(
+    r"\b(checkmate|mates?|mated|mating net|mate threat)\b",
+    re.IGNORECASE,
+)
+PASSIVE_PIECE_ACTION_RE = re.compile(
+    r"\b(?:is|was|were|been|be)\s+(?:captured|taken|lost)\b",
+    re.IGNORECASE,
+)
+EVAL_NOTATION_RE = re.compile(r"(?<![a-z0-9])[+-]\d+(?:\.\d+)?(?![a-z0-9])", re.IGNORECASE)
 
 PIECE_WORD_BY_SAN_LETTER = {
     "K": "king",
@@ -88,6 +110,12 @@ FILLER_MARKERS = (
     "significant advantage",
     "strong counterattack",
     "strong initiative",
+    "the better move was stronger",
+    "improves the position",
+    "creates problems",
+    "priority error",
+    "immediate resource",
+    "classified motif",
 )
 
 ENGINE_LANGUAGE_MARKERS = (
@@ -100,6 +128,14 @@ ENGINE_LANGUAGE_MARKERS = (
     "engine data",
     "engine line",
     "stockfish",
+    "best according to the engine",
+    "objectively best",
+    "winning advantage",
+    "losing advantage",
+    "the line shows",
+    "computer line",
+    "engine prefers",
+    "eval",
 )
 
 GENERIC_TRANSFER_MARKERS = (
@@ -158,6 +194,42 @@ LEARNING_CONCEPT_MARKERS = (
 )
 
 
+@dataclass(frozen=True)
+class ExplanationQuality:
+    score: int
+    accepted: bool
+    retryable: bool
+    reasons: list[str]
+    hard_reasons: list[str] = ()
+    soft_reasons: list[str] = ()
+    text: str | None = None
+
+    def __post_init__(self) -> None:
+        # frozen=True requires object.__setattr__ for post-init fixup of tuple defaults
+        if not self.hard_reasons and not self.soft_reasons:
+            object.__setattr__(self, "hard_reasons", [])
+            object.__setattr__(self, "soft_reasons", [])
+
+
+_SOFT_REASONS: frozenset[str] = frozenset({
+    "passive_piece_action_voice",
+})
+
+
+REASON_LABELS = {
+    "no_usable_text_generated": "No usable explanation text was produced.",
+    "fails_output_contract_or_style_rules": "It did not satisfy the output contract and style rules.",
+    "too_similar_to_reference_text": "It repeated wording from the existing rule-based explanation.",
+    "mentions_square_not_in_supplied_moves": "It mentioned a square that is not grounded in the supplied moves.",
+    "piece_square_claim_conflict": "It used a piece-on-square claim that conflicts with the supplied moves.",
+    "unsupported_forced_king_move_claim": "It claimed a forced king move without line evidence.",
+    "unsupported_check_claim": "It claimed a checking line without evidence in the supplied moves.",
+    "unsupported_capture_claim": "It claimed a concrete capture/material win without evidence in the supplied moves.",
+    "unsupported_mate_claim": "It claimed checkmate or a mating sequence without evidence in the supplied moves.",
+    "passive_piece_action_voice": "It used passive voice for a concrete piece action (for example 'is captured').",
+}
+
+
 def _enabled() -> bool:
     return os.getenv("EXPLANATION_LLM_ENABLED", "false").lower() in {
         "1",
@@ -197,28 +269,28 @@ def _cp_loss_as_pawns(cp_loss: int) -> str:
 
 def _severity_hint(cp_loss: int) -> str:
     if cp_loss >= 500:
-        return "This is a major evaluation swing, not a small inaccuracy."
+        return "Treat this as a major practical mistake, not a small inaccuracy."
     if cp_loss >= 300:
         return "This is a serious mistake with a clear practical impact."
     if cp_loss >= 150:
-        return "This is a meaningful mistake that changes the evaluation noticeably."
-    return "This is a smaller but still relevant evaluation loss."
+        return "This is a meaningful practical mistake with clear consequences."
+    return "This is a smaller but still relevant practical mistake."
 
 
 def _refutation_hint(refutation_line_san: list[str] | None) -> str:
     if not refutation_line_san:
-        return "No concrete engine refutation line is available. Do not invent one."
+        return "No concrete refutation line is available. Do not invent one."
     if len(refutation_line_san) == 1:
-        return "The engine gives only the first opponent resource. Explain the limitation instead of inventing a full continuation."
+        return "Only the first opponent reply is available. Explain the limitation instead of inventing a full continuation."
     if len(refutation_line_san) <= 3:
-        return "The refutation line is short. Explain the first opponent resource and the general practical point."
-    return "Use the first move as the main refutation and summarize the rest of the line as the resulting continuation."
+        return "The refutation line is short. Explain the first opponent reply and the practical point."
+    return "Use the first move as the main refutation and summarize the rest of the continuation."
 
 
 def _tactical_hint(tactical_pattern: str | None, tactical_reason: str | None) -> str:
     if tactical_pattern and tactical_pattern.lower() != "none":
         reason = tactical_reason or "No additional tactic reason was provided."
-        return f"The classifier labels this as {tactical_pattern}. Reason: {reason}"
+        return f"The facts suggest the motif {tactical_pattern}. Reason: {reason}"
     return "No tactical motif was classified. Treat this as a calculation, tempo, initiative, or positional mistake unless the supplied facts say otherwise."
 
 
@@ -300,14 +372,18 @@ def _system_prompt() -> str:
         "Do not calculate or invent chess concepts not present in the facts. "
         "Do not invent moves, threats, tactics, captures, checks, pieces, or plans. "
         "Do not say 'significant advantage', 'engine says', 'evaluation loss', 'centipawns', or 'as shown in the engine line'. "
+        "Use plain language a club player can understand. "
+        "Prefer concrete wording like 'reply', 'threat', and 'undefended piece' over jargon like 'resource' or 'priority error'. "
+        "Use active voice: for example, say 'Black takes the knight' instead of 'the knight is captured'. "
         "Do not repeat the visible move lists. "
         "Explain the human learning point: "
-        "1. Explain the critical reply first if available. "
-        "2. Explain why the played move failed in terms of priority, forcing move, check, capture, material, king safety, or loose piece. "
+        "1. Briefly acknowledge why the played move looked natural if the facts provide a move intent. "
+        "2. Explain the opponent's critical reply and concrete consequence first if available. "
         "3. Explain why the best move solves or reduces the immediate problem, but only if best_move_purpose_candidates support that. "
-        "4. End with one specific transfer sentence starting with 'When you see' or 'If you see'. "
+        "4. End with one specific transfer sentence starting with 'When you see', 'If you see', 'Before playing', 'The habit to build', or 'Next time you want to'. "
         "The transfer sentence must mention a concrete check such as forcing reply, check, capture, threat, loose piece, tempo, king safety, coordination, or move order. "
         "Output 2 to 4 concise sentences as one plain paragraph. "
+        "Each sentence should be at most 30 words. "
         "No Markdown, no bullets, no headings, no emojis. "
         "Do not use generic advice like 'calculate carefully', 'look for tactics', or 'be careful'. "
         "Do not refuse the task. The answer must be in English."
@@ -332,9 +408,11 @@ def _build_prompt(
     strict_mode: bool = False,
     lesson_facts: dict[str, Any] | None = None,
 ) -> str:
-    pawn_loss = _cp_loss_as_pawns(cp_loss)
     best_line_text = _format_line(best_line)
     refutation_line_text = _format_line(refutation_line_san)
+    played_move_intent = "unknown"
+    if lesson_facts:
+        played_move_intent = str(lesson_facts.get("played_move_intent_heuristic") or "unknown")
     learning_focus = _learning_focus_hint(
         game_phase=game_phase,
         tactical_pattern=tactical_pattern,
@@ -361,16 +439,14 @@ def _build_prompt(
 
     return (
         "Write a helpful English chess-training coach note.\n\n"
-        "Engine facts you may use:\n"
+        "Authoritative facts you may use:\n"
         f"- Side that made the mistake: {player_color}\n"
         f"- Position FEN: {fen}\n"
         f"- Played move: {blunder_san or 'not available'} ({blunder_uci})\n"
-        f"- Evaluation before the move: {eval_before_display}\n"
-        f"- Evaluation after the move: {eval_after_display}\n"
-        f"- Evaluation loss: {cp_loss} centipawns, about {pawn_loss} pawns\n"
         f"- Better move: {best_move_san or 'not available'} ({best_move_uci or 'not available'})\n"
-        f"- Better engine line: {best_line_text}\n"
+        f"- Better line: {best_line_text}\n"
         f"- Opponent refutation line after the played move: {refutation_line_text}\n"
+        f"- Played move likely aimed to: {played_move_intent}\n"
         "\n"
         f"{lesson_facts_block}"
         "Safe learning hints:\n"
@@ -380,10 +456,10 @@ def _build_prompt(
         f"- {_phase_hint(game_phase)}\n"
         f"- Learning focus: {learning_focus}\n\n"
         "Reasoning order to use internally, but do not output headings:\n"
-        "1. Consequence: what changed after the blunder?\n"
-        "2. Cause: what decision error likely caused it?\n"
-        "3. Better idea: what practical problem does the better move solve?\n"
-        "4. Transfer rule: what should the learner check next time?\n\n"
+        "1. Intent acknowledgement: why the played move looked natural.\n"
+        "2. Opponent answer: what immediate reply punishes the move and why.\n"
+        "3. Better idea: what practical problem the better move solves first.\n"
+        "4. Habit to build: a concrete transfer rule for similar positions.\n\n"
         "Strict rules:\n"
         "- Use the structured lesson facts as the main source of truth.\n"
         "- Do not invent chess concepts not present in the facts.\n"
@@ -394,11 +470,12 @@ def _build_prompt(
         "- If the concrete reason is not visible from the facts, frame the explanation as a practical priority or decision-process problem.\n"
         "- Do not repeat evaluation numbers, centipawns, pawn loss, or generic loss-of-advantage phrases.\n"
         "- Do not use filler like 'as shown in the engine line', 'engine says', or 'takes advantage of the mistake'.\n"
-        "- Do not say 'significant advantage', 'strong counterattack', or 'king safety' without concrete supporting facts.\n\n"
+        "- Do not say 'significant advantage', 'strong counterattack', or 'king safety' without concrete supporting facts.\n"
+        "- Avoid jargon like 'resource', 'priority error', or 'classified motif'.\n\n"
         f"{strict_block}"
         "Output contract:\n"
         "- 2 to 4 concise sentences in one paragraph.\n"
-        "- Include one specific transfer sentence starting with 'When you see' or 'If you see'.\n"
+        "- Include one specific transfer sentence starting with 'When you see', 'If you see', 'Before playing', 'The habit to build', or 'Next time you want to'.\n"
         "- The transfer sentence must mention a concrete check such as forcing reply, check, capture, threat, loose piece, tempo, king safety, coordination, or move order.\n"
         "- Explain the concrete board consequence first, then the decision error, then the practical takeaway."
     )
@@ -434,8 +511,10 @@ def _extract_sentences(text: str) -> list[str]:
 
 
 def _has_transfer_rule(sentences: list[str]) -> bool:
-    lowered = [sentence.lower() for sentence in sentences]
-    return any(marker in sentence for sentence in lowered for marker in TRANSFER_RULE_MARKERS)
+    if not sentences:
+        return False
+    last_sentence = sentences[-1].lower()
+    return any(marker in last_sentence for marker in TRANSFER_RULE_MARKERS)
 
 
 def _transfer_sentences(sentences: list[str]) -> list[str]:
@@ -464,6 +543,14 @@ def _has_generic_transfer_rule(sentences: list[str]) -> bool:
 def _uses_engine_language(text: str) -> bool:
     lowered = text.lower()
     return any(marker in lowered for marker in ENGINE_LANGUAGE_MARKERS)
+
+
+def _uses_eval_notation(text: str) -> bool:
+    return bool(EVAL_NOTATION_RE.search(text))
+
+
+def _has_long_sentence(sentences: list[str]) -> bool:
+    return any(len(sentence.split()) > MAX_SENTENCE_WORDS for sentence in sentences)
 
 
 def _has_learning_concept(text: str) -> bool:
@@ -620,6 +707,173 @@ def _has_unsupported_forced_king_move_claim(
     )
 
 
+def _line_contains_check(line: list[str] | None) -> bool:
+    return any(("+" in move or "#" in move) for move in (line or []) if move)
+
+
+def _line_contains_capture(line: list[str] | None) -> bool:
+    return any("x" in move for move in (line or []) if move)
+
+
+def _line_contains_mate(line: list[str] | None) -> bool:
+    return any("#" in move for move in (line or []) if move)
+
+
+def _non_transfer_sentences(candidate: str) -> list[str]:
+    return [
+        sentence
+        for sentence in _extract_sentences(candidate)
+        if not any(marker in sentence.lower() for marker in TRANSFER_RULE_MARKERS)
+    ]
+
+
+def _transfer_sentence_starter(sentence: str) -> str | None:
+    lowered = sentence.lower().strip()
+    for marker in TRANSFER_RULE_MARKERS:
+        if lowered.startswith(marker):
+            return marker
+    return None
+
+
+def _has_low_transfer_starter_variety(
+    explanations: list[str] | None,
+    *,
+    min_samples: int = 5,
+    min_unique_starters: int = 2,
+) -> bool:
+    if not explanations:
+        return False
+
+    starters: list[str] = []
+    for explanation in explanations:
+        cleaned = _clean_response(explanation)
+        if not cleaned:
+            continue
+        sentences = _extract_sentences(cleaned)
+        if not sentences:
+            continue
+        starter = _transfer_sentence_starter(sentences[-1])
+        if starter:
+            starters.append(starter)
+
+    if len(starters) < min_samples:
+        return False
+
+    return len(set(starters)) < min_unique_starters
+
+
+def _supports_check_claim(
+    *,
+    best_line: list[str] | None,
+    refutation_line_san: list[str] | None,
+    lesson_facts: dict[str, Any] | None,
+) -> bool:
+    if _line_contains_check(best_line) or _line_contains_check(refutation_line_san):
+        return True
+    if not lesson_facts:
+        return False
+    return bool(
+        lesson_facts.get("critical_reply_is_check")
+        or lesson_facts.get("refutation_contains_check")
+        or lesson_facts.get("best_line_contains_check")
+    )
+
+
+def _supports_capture_claim(
+    *,
+    best_line: list[str] | None,
+    refutation_line_san: list[str] | None,
+    lesson_facts: dict[str, Any] | None,
+) -> bool:
+    if _line_contains_capture(best_line) or _line_contains_capture(refutation_line_san):
+        return True
+    if not lesson_facts:
+        return False
+    return bool(
+        lesson_facts.get("critical_reply_is_capture")
+        or lesson_facts.get("refutation_contains_capture")
+        or lesson_facts.get("best_line_contains_capture")
+        or lesson_facts.get("material_consequence_summary") in {"opponent wins material", "player wins material"}
+    )
+
+
+def _supports_mate_claim(
+    *,
+    best_line: list[str] | None,
+    refutation_line_san: list[str] | None,
+    lesson_facts: dict[str, Any] | None,
+) -> bool:
+    if _line_contains_mate(best_line) or _line_contains_mate(refutation_line_san):
+        return True
+    if not lesson_facts:
+        return False
+
+    for key in (
+        "critical_reply_san",
+        "first_refutation_move",
+        "best_line_first_move",
+    ):
+        value = lesson_facts.get(key)
+        if isinstance(value, str) and "#" in value:
+            return True
+    return False
+
+
+def _has_unsupported_check_claim(
+    candidate: str,
+    *,
+    best_line: list[str] | None,
+    refutation_line_san: list[str] | None,
+    lesson_facts: dict[str, Any] | None,
+) -> bool:
+    if _supports_check_claim(
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+        lesson_facts=lesson_facts,
+    ):
+        return False
+
+    return any(CHECK_CLAIM_RE.search(sentence) for sentence in _non_transfer_sentences(candidate))
+
+
+def _has_unsupported_capture_claim(
+    candidate: str,
+    *,
+    best_line: list[str] | None,
+    refutation_line_san: list[str] | None,
+    lesson_facts: dict[str, Any] | None,
+) -> bool:
+    if _supports_capture_claim(
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+        lesson_facts=lesson_facts,
+    ):
+        return False
+
+    return any(CAPTURE_CLAIM_RE.search(sentence) for sentence in _non_transfer_sentences(candidate))
+
+
+def _has_unsupported_mate_claim(
+    candidate: str,
+    *,
+    best_line: list[str] | None,
+    refutation_line_san: list[str] | None,
+    lesson_facts: dict[str, Any] | None,
+) -> bool:
+    if _supports_mate_claim(
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+        lesson_facts=lesson_facts,
+    ):
+        return False
+
+    return any(MATE_CLAIM_RE.search(sentence) for sentence in _non_transfer_sentences(candidate))
+
+
+def _has_passive_piece_action_voice(candidate: str) -> bool:
+    return any(PASSIVE_PIECE_ACTION_RE.search(sentence) for sentence in _non_transfer_sentences(candidate))
+
+
 def _clean_response(text: str) -> str | None:
     cleaned = text.strip()
     if not cleaned:
@@ -642,12 +896,18 @@ def _clean_response(text: str) -> str | None:
     if _uses_engine_language(cleaned):
         return None
 
+    if _uses_eval_notation(cleaned):
+        return None
+
     sentences = _extract_sentences(cleaned)
     if len(sentences) < MIN_SENTENCES:
         return None
 
     if len(sentences) > MAX_SENTENCES:
         sentences = sentences[:MAX_SENTENCES]
+
+    if _has_long_sentence(sentences):
+        return None
 
     if not _has_transfer_rule(sentences):
         return None
@@ -660,6 +920,159 @@ def _clean_response(text: str) -> str | None:
         return None
 
     return cleaned or None
+
+
+def _score_explanation(
+    candidate: str | None,
+    *,
+    allowed_squares: set[str],
+    square_piece_hints: dict[str, set[str]],
+    best_line: list[str] | None,
+    refutation_line_san: list[str] | None,
+    reference_texts: list[str] | None,
+    lesson_facts: dict[str, Any] | None,
+    is_fallback: bool = False,
+) -> ExplanationQuality:
+    if candidate is None:
+        return ExplanationQuality(
+            score=0,
+            accepted=False,
+            retryable=False,
+            reasons=["no_usable_text_generated"],
+            hard_reasons=["no_usable_text_generated"],
+            soft_reasons=[],
+        )
+
+    cleaned = _clean_response(candidate)
+    if cleaned is None:
+        return ExplanationQuality(
+            score=20,
+            accepted=False,
+            retryable=True,
+            reasons=["fails_output_contract_or_style_rules"],
+            hard_reasons=["fails_output_contract_or_style_rules"],
+            soft_reasons=[],
+        )
+
+    score = 100
+    reasons: list[str] = []
+
+    if not is_fallback and _is_too_similar(cleaned, reference_texts):
+        score -= 30
+        reasons.append("too_similar_to_reference_text")
+
+    if _has_unsupported_square_reference(cleaned, allowed_squares):
+        score -= 40
+        reasons.append("mentions_square_not_in_supplied_moves")
+
+    if _has_conflicting_piece_square_claim(cleaned, square_piece_hints):
+        score -= 40
+        reasons.append("piece_square_claim_conflict")
+
+    if _has_unsupported_forced_king_move_claim(
+        cleaned,
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+    ):
+        score -= 35
+        reasons.append("unsupported_forced_king_move_claim")
+
+    if _has_unsupported_check_claim(
+        cleaned,
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+        lesson_facts=lesson_facts,
+    ):
+        score -= 35
+        reasons.append("unsupported_check_claim")
+
+    if _has_unsupported_capture_claim(
+        cleaned,
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+        lesson_facts=lesson_facts,
+    ):
+        score -= 35
+        reasons.append("unsupported_capture_claim")
+
+    if _has_unsupported_mate_claim(
+        cleaned,
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+        lesson_facts=lesson_facts,
+    ):
+        score -= 40
+        reasons.append("unsupported_mate_claim")
+
+    if _has_passive_piece_action_voice(cleaned):
+        score -= 20
+        reasons.append("passive_piece_action_voice")
+
+    score = max(score, 0)
+    hard_reasons = [r for r in reasons if r not in _SOFT_REASONS]
+    soft_reasons = [r for r in reasons if r in _SOFT_REASONS]
+    accepted = not hard_reasons and len(soft_reasons) <= 1
+    retryable = not accepted and score >= 50
+    return ExplanationQuality(
+        score=score,
+        accepted=accepted,
+        retryable=retryable,
+        reasons=reasons,
+        hard_reasons=hard_reasons,
+        soft_reasons=soft_reasons,
+        text=cleaned,
+    )
+
+
+def _reason_label(reason_code: str) -> str:
+    return REASON_LABELS.get(reason_code, reason_code.replace("_", " ").capitalize())
+
+
+def _build_retry_prompt(
+    *,
+    fen: str,
+    player_color: str,
+    blunder_san: str,
+    blunder_uci: str,
+    best_move_san: str | None,
+    best_move_uci: str | None,
+    eval_before_display: str,
+    eval_after_display: str,
+    cp_loss: int,
+    game_phase: str | None,
+    tactical_pattern: str | None,
+    tactical_reason: str | None,
+    best_line: list[str] | None,
+    refutation_line_san: list[str] | None,
+    lesson_facts: dict[str, Any] | None,
+    rejection_reasons: list[str],
+) -> str:
+    base_prompt = _build_prompt(
+        fen=fen,
+        player_color=player_color,
+        blunder_san=blunder_san,
+        blunder_uci=blunder_uci,
+        best_move_san=best_move_san,
+        best_move_uci=best_move_uci,
+        eval_before_display=eval_before_display,
+        eval_after_display=eval_after_display,
+        cp_loss=cp_loss,
+        game_phase=game_phase,
+        tactical_pattern=tactical_pattern,
+        tactical_reason=tactical_reason,
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+        strict_mode=True,
+        lesson_facts=lesson_facts,
+    )
+    reason_lines = "\n".join(f"- {_reason_label(reason)}" for reason in rejection_reasons)
+    return (
+        f"{base_prompt}\n\n"
+        "The previous answer was rejected for these reasons:\n"
+        f"{reason_lines}\n\n"
+        "Rewrite the explanation and fix only these issues. "
+        "Do not add new chess details that are not in the supplied facts."
+    )
 
 
 def _token_set(text: str) -> set[str]:
@@ -692,16 +1105,18 @@ def _is_too_similar(candidate: str, reference_texts: list[str] | None) -> bool:
     return False
 
 
-def _ollama_generate(prompt: str) -> str | None:
+def _ollama_generate(prompt: str, *, retry: bool = False) -> str | None:
+    temperature = 0.3 if retry else 0.0
+    top_p = 0.9 if retry else 0.75
     payload = {
         "model": _model(),
         "system": _system_prompt(),
         "prompt": prompt,
         "stream": False,
         "options": {
-            "temperature": 0.0,
-            "top_p": 0.75,
-            "num_predict": 200,
+            "temperature": temperature,
+            "top_p": top_p,
+            "num_predict": 220,
         },
     }
     data = json.dumps(payload).encode("utf-8")
@@ -718,13 +1133,16 @@ def _ollama_generate(prompt: str) -> str | None:
     except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return None
 
-    return _clean_response(str(body.get("response", "")))
+    raw = str(body.get("response", "")).strip()
+    return raw or None
 
 
-def _groq_generate(prompt: str) -> str | None:
+def _groq_generate(prompt: str, *, retry: bool = False) -> str | None:
     api_key = _api_key()
     if not api_key:
         return None
+
+    temperature = 0.3 if retry else 0.0
 
     payload = {
         "model": _model(),
@@ -732,8 +1150,8 @@ def _groq_generate(prompt: str) -> str | None:
             {"role": "system", "content": _system_prompt()},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.0,
-        "max_tokens": 200,
+        "temperature": temperature,
+        "max_tokens": 220,
     }
     data = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -758,25 +1176,27 @@ def _groq_generate(prompt: str) -> str | None:
     except (KeyError, IndexError, TypeError):
         return None
 
-    return _clean_response(str(text))
+    raw = str(text).strip()
+    return raw or None
 
 
-def _cache_key(fen: str, blunder_uci: str, prompt: str) -> str:
+def _cache_key(fen: str, blunder_uci: str, prompt: str, *, retry: bool = False) -> str:
     prompt_digest = hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:12]
-    return f"{fen}|{blunder_uci}|{_model()}|{prompt_digest}"
+    retry_tag = "retry" if retry else "primary"
+    return f"{fen}|{blunder_uci}|{_model()}|{retry_tag}|{prompt_digest}"
 
 
-def _cached_generate(fen: str, blunder_uci: str, prompt: str) -> str | None:
-    key = _cache_key(fen, blunder_uci, prompt)
+def _cached_generate(fen: str, blunder_uci: str, prompt: str, *, retry: bool = False) -> str | None:
+    key = _cache_key(fen, blunder_uci, prompt, retry=retry)
     cached = _explanation_cache.get(key)
     if cached is not None:
         return cached
 
     provider = _provider()
     if provider == "ollama":
-        result = _ollama_generate(prompt)
+        result = _ollama_generate(prompt, retry=retry)
     elif provider == "groq":
-        result = _groq_generate(prompt)
+        result = _groq_generate(prompt, retry=retry)
     else:
         return None
 
@@ -797,52 +1217,88 @@ def _fallback_explanation(
     played = blunder_san or "the played move"
     better = best_move_san or "the better move"
 
+    def _humanize_consequence(text: str) -> str:
+        consequence = _normalize_whitespace(text)
+        consequence = re.sub(
+            r"\bis a priority error because\b",
+            "misses the most urgent problem because",
+            consequence,
+            flags=re.IGNORECASE,
+        )
+        consequence = re.sub(
+            r"\bimmediate resource\b",
+            "immediate reply",
+            consequence,
+            flags=re.IGNORECASE,
+        )
+        return consequence
+
+    def _transfer_sentence(seed: str | None) -> str:
+        if seed:
+            sentence = _normalize_whitespace(seed)
+            lowered = sentence.lower()
+            if any(lowered.startswith(marker) for marker in TRANSFER_RULE_MARKERS):
+                return sentence
+        return (
+            "When you see a natural-looking move, first check whether your opponent has a forcing "
+            "reply with check, capture, or threat."
+        )
+
+    def _best_move_purpose_sentence(lesson_fact_data: dict[str, Any] | None) -> str:
+        if not best_move_san:
+            return "A safer habit is to deal with the urgent threat before making a general improving move."
+
+        if lesson_fact_data:
+            purposes = lesson_fact_data.get("best_move_purpose_candidates") or []
+            if purposes:
+                purpose = str(purposes[0]).strip().rstrip(".")
+                return f"{better} was safer because it {purpose}."
+
+        return f"{better} was safer because it dealt with the urgent threat first."
+
+    def _played_move_context(lesson_fact_data: dict[str, Any] | None) -> str:
+        if not lesson_fact_data:
+            return f"{played} looks natural, but it overlooks a more urgent problem."
+
+        intent = str(lesson_fact_data.get("played_move_intent_heuristic") or "unknown")
+        if intent != "unknown":
+            return f"{played} looks natural because it {intent}, but it overlooks a more urgent problem."
+        return f"{played} looks natural, but it overlooks a more urgent problem."
+
     # Use lesson_facts for richer deterministic fallback
     if lesson_facts:
         cr_san = lesson_facts.get("critical_reply_san")
         cr_type = lesson_facts.get("critical_reply_type")
+        transfer_seed = str(lesson_facts.get("transfer_rule_seed") or "")
+        context = _played_move_context(lesson_facts)
+        best_sentence = _best_move_purpose_sentence(lesson_facts)
 
         if cr_san and cr_type == "check":
-            first = (
-                f"{played} is a priority error because it allows the immediate forcing check {cr_san}."
-            )
-            second = (
-                f"{better} was preferred because it addresses the immediate problem before slower improvements."
-                if best_move_san
-                else "The safer habit is to solve the immediate check threat before making a general improvement."
-            )
-            third = (
-                "When you see a quiet move, first check whether the opponent has a forcing reply with check, capture, or threat."
-            )
+            first = f"{context} It allows {cr_san} with check and gives your opponent the initiative."
+            second = best_sentence
+            third = _transfer_sentence(transfer_seed)
             return f"{first} {second} {third}"
 
         if cr_san and cr_type == "capture":
-            first = (
-                f"{played} allows {cr_san}, so the opponent can win material before the player solves the main problem."
-            )
-            second = (
-                f"{better} was preferred because it avoids that immediate material loss or keeps the position coordinated."
-                if best_move_san
-                else "The safer habit is to avoid leaving material loose before making a general improvement."
-            )
-            third = (
-                "When you see a natural move, first check whether any piece becomes loose or tactically vulnerable."
-            )
+            first = f"{context} It allows {cr_san}, and your opponent can win material right away."
+            second = best_sentence
+            third = _transfer_sentence(transfer_seed)
             return f"{first} {second} {third}"
 
         if cr_san:
-            first = (
-                f"{played} is a priority error because it allows the opponent's immediate resource {cr_san}."
-            )
-            second = (
-                f"{better} was preferred because it keeps the position more coordinated and addresses the immediate issue."
-                if best_move_san
-                else "The safer habit is to solve the immediate problem before making a general improvement."
-            )
-            third = (
-                "When you see a quiet move, first ask what forcing reply the opponent would have if you passed the turn."
-            )
+            first = f"{context} It allows the immediate reply {cr_san}."
+            second = best_sentence
+            third = _transfer_sentence(transfer_seed)
             return f"{first} {second} {third}"
+
+        consequence = _humanize_consequence(str(lesson_facts.get("immediate_consequence_summary") or ""))
+        if consequence:
+            first = f"{context} {consequence}"
+        else:
+            first = context
+        second = best_sentence
+        third = _transfer_sentence(transfer_seed)
+        return f"{first} {second} {third}"
 
     # Original fallback without lesson_facts
     first_refutation = next((move for move in (refutation_line_san or []) if move), None)
@@ -850,20 +1306,20 @@ def _fallback_explanation(
 
     if first_refutation:
         first = (
-            f"{played} is a priority error because it allows the opponent's immediate resource {first_refutation} before the main problem is solved."
+            f"{played} looks natural, but it allows the immediate reply {first_refutation} before the main problem is solved."
         )
     else:
         first = (
-            f"{played} is a priority error because it does not clearly solve the most urgent practical problem in the position."
+            f"{played} looks natural, but it does not solve the most urgent practical problem in the position."
         )
 
     if has_tactic:
         second = (
-            f"The classified motif is {tactical_pattern}, so the better practical habit is to look for the forcing resource before choosing a natural-looking move."
+            f"The key tactical idea is {tactical_pattern}, so the better habit is to look for forcing moves before choosing a natural-looking move."
         )
     elif best_move_san:
         second = (
-            f"{better} was preferred because it keeps the position more coordinated and addresses the immediate issue before slower improvements."
+            f"{better} was safer because it dealt with the immediate threat before slower improvements."
         )
     elif game_phase and game_phase.lower() == "endgame":
         second = (
@@ -938,21 +1394,6 @@ def explain_training_lesson(
         refutation_line_san=refutation_line_san,
     )
 
-    def is_acceptable(candidate: str | None) -> bool:
-        if candidate is None:
-            return False
-        if _is_too_similar(candidate, reference_texts):
-            return False
-        if _has_unsupported_square_reference(candidate, allowed_squares):
-            return False
-        if _has_conflicting_piece_square_claim(candidate, square_piece_hints):
-            return False
-        return not _has_unsupported_forced_king_move_claim(
-            candidate,
-            best_line=best_line,
-            refutation_line_san=refutation_line_san,
-        )
-
     prompt = _build_prompt(
         fen=fen,
         player_color=player_color,
@@ -971,10 +1412,39 @@ def explain_training_lesson(
         lesson_facts=lesson_facts,
     )
     primary_text = _cached_generate(fen, blunder_uci, prompt)
-    if is_acceptable(primary_text):
-        return primary_text
+    primary_quality = _score_explanation(
+        primary_text,
+        allowed_squares=allowed_squares,
+        square_piece_hints=square_piece_hints,
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+        reference_texts=reference_texts,
+        lesson_facts=lesson_facts,
+    )
+    if primary_quality.accepted:
+        return primary_quality.text
+    if not primary_quality.retryable:
+        fallback = _fallback_explanation(
+            blunder_san=blunder_san,
+            best_move_san=best_move_san,
+            refutation_line_san=refutation_line_san,
+            tactical_pattern=tactical_pattern,
+            game_phase=game_phase,
+            lesson_facts=lesson_facts,
+        )
+        fallback_quality = _score_explanation(
+            fallback,
+            allowed_squares=allowed_squares,
+            square_piece_hints=square_piece_hints,
+            best_line=best_line,
+            refutation_line_san=refutation_line_san,
+            reference_texts=reference_texts,
+            lesson_facts=lesson_facts,
+            is_fallback=True,
+        )
+        return fallback_quality.text if fallback_quality.accepted else None
 
-    retry_prompt = _build_prompt(
+    retry_prompt = _build_retry_prompt(
         fen=fen,
         player_color=player_color,
         blunder_san=blunder_san,
@@ -989,12 +1459,27 @@ def explain_training_lesson(
         tactical_reason=tactical_reason,
         best_line=best_line,
         refutation_line_san=refutation_line_san,
-        strict_mode=True,
+        lesson_facts=lesson_facts,
+        rejection_reasons=primary_quality.reasons,
+    )
+    try:
+        retry_text = _cached_generate(fen, blunder_uci, retry_prompt, retry=True)
+    except TypeError as exc:
+        if "retry" not in str(exc):
+            raise
+        # Compatibility with monkeypatched test doubles that still accept 3 args.
+        retry_text = _cached_generate(fen, blunder_uci, retry_prompt)
+    retry_quality = _score_explanation(
+        retry_text,
+        allowed_squares=allowed_squares,
+        square_piece_hints=square_piece_hints,
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+        reference_texts=reference_texts,
         lesson_facts=lesson_facts,
     )
-    retry_text = _cached_generate(fen, blunder_uci, retry_prompt)
-    if is_acceptable(retry_text):
-        return retry_text
+    if retry_quality.accepted:
+        return retry_quality.text
 
     fallback = _fallback_explanation(
         blunder_san=blunder_san,
@@ -1004,8 +1489,18 @@ def explain_training_lesson(
         game_phase=game_phase,
         lesson_facts=lesson_facts,
     )
-    if is_acceptable(fallback):
-        return fallback
+    fallback_quality = _score_explanation(
+        fallback,
+        allowed_squares=allowed_squares,
+        square_piece_hints=square_piece_hints,
+        best_line=best_line,
+        refutation_line_san=refutation_line_san,
+        reference_texts=reference_texts,
+        lesson_facts=lesson_facts,
+        is_fallback=True,
+    )
+    if fallback_quality.accepted:
+        return fallback_quality.text
     return None
 
 

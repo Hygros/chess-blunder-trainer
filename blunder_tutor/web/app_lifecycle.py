@@ -424,7 +424,11 @@ def _init_state(app: FastAPI, config: AppConfig) -> None:
 
     app.state.config = config
     app.state.limit = _engine_limit(config)
-    app.state.work_coordinator = WorkCoordinator(engine_path=config.engine_path)
+    app.state.work_coordinator = WorkCoordinator(
+        engine_path=config.engine_path,
+        pool_size=config.engine.pool_size,
+        hash_mb=config.engine.hash_mb,
+    )
     app.state.event_bus = EventBus()
     _init_caches(app, config)
     app.state.connection_manager = ConnectionManager(app.state.event_bus)

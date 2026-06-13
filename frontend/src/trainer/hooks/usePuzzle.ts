@@ -10,6 +10,10 @@ export interface PuzzleAPI {
   submitMove: (uci: string) => Promise<SubmitMoveResponse | null>;
 }
 
+function hasActiveQueryFilters(filterParams?: QueryParams): boolean {
+  return !!filterParams && Object.keys(filterParams).length > 0;
+}
+
 async function hasActiveJobs(): Promise<boolean> {
   try {
     const jobs = await client.jobs.list({ status: 'running' });
@@ -53,7 +57,12 @@ export function usePuzzle(): PuzzleAPI {
           dispatch({ type: 'SET_EMPTY_STATE', emptyState: active ? 'analyzing' : 'no_games' });
         } else if (msg.includes('no blunders found')) {
           const active = await hasActiveJobs();
-          dispatch({ type: 'SET_EMPTY_STATE', emptyState: active ? 'analyzing' : 'no_blunders' });
+          dispatch({
+            type: 'SET_EMPTY_STATE',
+            emptyState: active
+              ? 'analyzing'
+              : (hasActiveQueryFilters(filterParams) ? 'no_blunders_filtered' : 'no_blunders'),
+          });
         } else {
           dispatch({ type: 'SET_ERROR', error: err.message });
         }

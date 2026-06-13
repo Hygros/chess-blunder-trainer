@@ -601,7 +601,6 @@
   "trainer.debug.copied": "已复制！",
   "trainer.debug.copy": "调试",
   "trainer.debug.copy_title": "复制游戏调试信息到剪贴板",
-  "trainer.details.explanation": "为什么这是一步严重失误",
   "trainer.details.tactical": "战术详情",
   "trainer.empty.analyzing_action": "查看进度",
   "trainer.empty.analyzing_message": "正在导入和分析您的棋局。这可能需要一些时间——题目准备好后将自动显示。",
@@ -671,6 +670,9 @@
   "trainer.stats.correct": "正确",
   "trainer.stats.incorrect": "错误",
   "trainer.toggle.show_arrows": "显示走法箭头",
+  "trainer.toggle.show_best_arrow": "显示最佳走法箭头",
+  "trainer.toggle.show_engine_best_arrow": "显示引擎最佳走法箭头",
+  "trainer.toggle.show_blunder_arrow": "显示坏棋走法箭头",
   "trainer.toggle.show_coordinates": "显示棋盘坐标",
   "trainer.toggle.show_tactics": "高亮战术模式（揭示后）",
   "trainer.toggle.show_threats": "显示威胁（悬挂子力、牵制、将军）",
@@ -713,5 +715,11 @@
   "traps.times_fell": "次中招",
   "traps.title": "陷阱与攻击",
   "traps.view_all": "查看所有陷阱",
-  "traps.your_games": "你的对局"
+  "traps.your_games": "你的对局",
+  "explanation.bundle.consequence_cp_loss": "这步棋大约会损失 {loss} 个兵的优势。",
+  "explanation.bundle.refutation_line": "对手可以这样应对：{line}",
+  "trainer.explanation.ai": "教练洞察（AI）",
+  "trainer.explanation.consequence": "为什么这是一步严重失误",
+  "trainer.explanation.refutation": "对手可以走什么",
+  "trainer.explanation.comparison": "什么更好"
 }

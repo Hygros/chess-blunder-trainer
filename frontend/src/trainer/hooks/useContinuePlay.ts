@@ -12,6 +12,7 @@ export function useContinuePlay(
   handleContinueMove: () => void;
   refreshEval: () => void;
   engineEvalCp: number | null;
+  engineBestMoveUci: string | null;
 } {
   const { state, dispatch } = useContext(TrainerContext);
   const engineRef = useRef<StockfishEngine | null>(null);
@@ -21,15 +22,17 @@ export function useContinuePlay(
   const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initDoneRef = useRef(false);
   const [engineEvalCp, setEngineEvalCp] = useState<number | null>(null);
+  const [engineBestMoveUci, setEngineBestMoveUci] = useState<string | null>(null);
 
   modeRef.current = state.continuePlaying;
 
   // Persistent subscriber callback — stores latest update and triggers move when ready
   const onEngineUpdate = useCallback((update: EngineUpdate) => {
     latestUpdateRef.current = update;
+    const topLine = update.lines[0];
+    setEngineBestMoveUci(topLine?.pv[0] ?? null);
 
     // Engine lines are already white POV; keep them unchanged for eval bar updates.
-    const topLine = update.lines[0];
     if (topLine) {
       if (topLine.scoreCp != null) {
         setEngineEvalCp(topLine.scoreCp);
@@ -39,16 +42,14 @@ export function useContinuePlay(
     }
 
     if (!waitingForMoveRef.current) return;
-    if (!topLine || topLine.pv.length === 0) return;
+    const bestMove = topLine?.pv[0];
+    if (!bestMove) return;
 
     // Clear any pending fallback timer
     if (moveTimerRef.current) {
       clearTimeout(moveTimerRef.current);
       moveTimerRef.current = null;
     }
-
-    const bestMove = topLine.pv[0];
-    if (!bestMove) return;
 
     if (update.depth >= ENGINE_DEPTH) {
       // Target depth reached — play the move
@@ -123,12 +124,16 @@ export function useContinuePlay(
       initDoneRef.current = false;
       waitingForMoveRef.current = false;
       latestUpdateRef.current = null;
+      setEngineEvalCp(null);
+      setEngineBestMoveUci(null);
       if (moveTimerRef.current) {
         clearTimeout(moveTimerRef.current);
         moveTimerRef.current = null;
       }
       return;
     }
+
+    setEngineBestMoveUci(null);
 
     if (state.continuePlaying === 'vs-engine') {
       // Create and initialize the engine inside the effect (after previous cleanup ran)
@@ -208,6 +213,7 @@ export function useContinuePlay(
       moveTimerRef.current = null;
     }
     setEngineEvalCp(null);
+    setEngineBestMoveUci(null);
     dispatch({ type: 'SET_CONTINUE_PLAYING', mode: 'off' });
   }, [dispatch]);
 
@@ -226,5 +232,12 @@ export function useContinuePlay(
     triggerEvalAnalysis();
   }, [triggerEvalAnalysis]);
 
-  return { startContinuePlay, stopContinuePlay, handleContinueMove, refreshEval, engineEvalCp };
+  return {
+    startContinuePlay,
+    stopContinuePlay,
+    handleContinueMove,
+    refreshEval,
+    engineEvalCp,
+    engineBestMoveUci,
+  };
 }

@@ -601,7 +601,6 @@
   "trainer.debug.copied": "Скопировано!",
   "trainer.debug.copy": "Отладка",
   "trainer.debug.copy_title": "Скопировать отладочную информацию в буфер обмена",
-  "trainer.details.explanation": "Почему это был зевок",
   "trainer.details.tactical": "Тактические детали",
   "trainer.empty.analyzing_action": "Посмотреть прогресс",
   "trainer.empty.analyzing_message": "Ваши партии импортируются и анализируются. Это может занять некоторое время — задачи появятся автоматически.",
@@ -671,6 +670,9 @@
   "trainer.stats.correct": "Верно",
   "trainer.stats.incorrect": "Неверно",
   "trainer.toggle.show_arrows": "Показать стрелки ходов",
+  "trainer.toggle.show_best_arrow": "Показать стрелку лучшего хода",
+  "trainer.toggle.show_engine_best_arrow": "Показать стрелку лучшего хода движка",
+  "trainer.toggle.show_blunder_arrow": "Показать стрелку плохого хода",
   "trainer.toggle.show_coordinates": "Показывать координаты на доске",
   "trainer.toggle.show_tactics": "Выделить тактический приём (после раскрытия)",
   "trainer.toggle.show_threats": "Показать угрозы (висячие фигуры, связки, шахи)",
@@ -713,5 +715,11 @@
   "traps.times_fell": "раз попались",
   "traps.title": "Ловушки и атаки",
   "traps.view_all": "Все ловушки",
-  "traps.your_games": "Ваши партии"
+  "traps.your_games": "Ваши партии",
+  "explanation.bundle.consequence_cp_loss": "Этот ход теряет преимущество примерно в {loss} пешек.",
+  "explanation.bundle.refutation_line": "Соперник может ответить: {line}",
+  "trainer.explanation.ai": "Подсказка тренера (AI)",
+  "trainer.explanation.consequence": "Почему это была грубая ошибка",
+  "trainer.explanation.refutation": "Что может сыграть соперник",
+  "trainer.explanation.comparison": "Что было лучше"
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, waitFor } from '@testing-library/preact';
+import { render, waitFor, screen, fireEvent } from '@testing-library/preact';
+import { STORAGE_KEYS } from '../../src/shared/storage-keys';
 
 const { mockChessground } = vi.hoisted(() => {
   const mockCg = {
@@ -86,6 +87,52 @@ describe('TrainerApp', () => {
     render(<TrainerApp />);
     await waitFor(() => {
       expect(client.trainer.getPuzzle).toHaveBeenCalled();
+    });
+  });
+
+  it('shows no-matching state with clear action when filters are active', async () => {
+    const { client, ApiError } = await import('../../src/shared/api');
+    vi.mocked(client.trainer.getPuzzle).mockRejectedValueOnce(new ApiError('No blunders found.', 400));
+    localStorage.setItem('blunder-tutor-color-filter', 'white');
+
+    render(<TrainerApp />);
+
+    await waitFor(() => {
+      expect(screen.getByText('trainer.empty.no_matching_title')).toBeTruthy();
+      expect(screen.getByText('trainer.empty.no_matching_action')).toBeTruthy();
+      expect(document.querySelector('.filters-panel')).not.toBeNull();
+    });
+  });
+
+  it('shows no-blunders state when no filters are active and keeps filters visible', async () => {
+    const { client, ApiError } = await import('../../src/shared/api');
+    vi.mocked(client.trainer.getPuzzle).mockRejectedValueOnce(new ApiError('No blunders found.', 400));
+
+    render(<TrainerApp />);
+
+    await waitFor(() => {
+      expect(screen.getByText('trainer.empty.no_blunders_title')).toBeTruthy();
+      expect(screen.getByText('trainer.empty.no_blunders_action')).toBeTruthy();
+      expect(document.querySelector('.filters-panel')).not.toBeNull();
+    });
+  });
+
+  it('enables blunder arrow again when switching to the next puzzle', async () => {
+    const { client } = await import('../../src/shared/api');
+    localStorage.setItem(STORAGE_KEYS.trainerShowBlunderArrow, 'false');
+
+    render(<TrainerApp />);
+
+    await waitFor(() => {
+      expect(client.trainer.getPuzzle).toHaveBeenCalledTimes(1);
+    });
+
+    const nextButton = document.querySelector('#nextBtn');
+    expect(nextButton).not.toBeNull();
+    fireEvent.click(nextButton as HTMLElement);
+
+    await waitFor(() => {
+      expect(localStorage.getItem(STORAGE_KEYS.trainerShowBlunderArrow)).toBe('true');
     });
   });
 });
