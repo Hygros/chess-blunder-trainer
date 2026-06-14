@@ -2,7 +2,8 @@ import { useCallback, useRef, useContext, useEffect, useState } from 'preact/hoo
 import { TrainerContext, type ContinuePlayMode } from '../context';
 import { StockfishEngine, spawnStockfishWorker, type EngineUpdate } from '../../shared/engine/stockfish';
 
-const ENGINE_DEPTH = 12;
+const ENGINE_DEPTH = 18;
+const MIN_THINK_MS = 700;
 
 export function useContinuePlay(
   gameRef: preact.RefObject<ChessInstance | null>,
@@ -21,6 +22,7 @@ export function useContinuePlay(
   const latestUpdateRef = useRef<EngineUpdate | null>(null);
   const moveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initDoneRef = useRef(false);
+  const analysisStartRef = useRef<number>(0);
   const [engineEvalCp, setEngineEvalCp] = useState<number | null>(null);
   const [engineBestMoveUci, setEngineBestMoveUci] = useState<string | null>(null);
 
@@ -51,10 +53,20 @@ export function useContinuePlay(
       moveTimerRef.current = null;
     }
 
-    if (update.depth >= ENGINE_DEPTH) {
-      // Target depth reached — play the move
+    if (update.depth >= ENGINE_DEPTH || update.searchComplete) {
+      // Target depth reached (or engine finished early) — play the move
+      // after ensuring minimum thinking time has elapsed.
+      const elapsed = performance.now() - analysisStartRef.current;
+      const delay = Math.max(0, MIN_THINK_MS - elapsed);
       waitingForMoveRef.current = false;
-      playEngineMove(bestMove);
+      if (delay <= 0) {
+        playEngineMove(bestMove);
+      } else {
+        moveTimerRef.current = setTimeout(() => {
+          moveTimerRef.current = null;
+          playEngineMove(bestMove);
+        }, delay);
+      }
     } else {
       // Not at target depth yet — set fallback timer (engine might stop early)
       moveTimerRef.current = setTimeout(() => {
@@ -63,7 +75,7 @@ export function useContinuePlay(
           waitingForMoveRef.current = false;
           playEngineMove(bestMove);
         }
-      }, 300);
+      }, 2000);
     }
   }, []);
 
@@ -98,6 +110,7 @@ export function useContinuePlay(
 
     waitingForMoveRef.current = true;
     latestUpdateRef.current = null;
+    analysisStartRef.current = performance.now();
     engine.analyze(game.fen());
   }, [gameRef]);
 

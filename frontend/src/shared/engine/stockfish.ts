@@ -10,6 +10,8 @@ export interface WorkerLike {
 export interface EngineUpdate {
   depth: number;
   lines: EngineLine[];
+  /** True when the engine has finished searching (bestmove received). */
+  searchComplete?: boolean;
 }
 
 // Defers a flush; called at most once per pending batch. Default batches to the
@@ -57,6 +59,7 @@ export class StockfishEngine {
   private _subs = new Set<Subscriber>();
   private _infos = new Map<number, ParsedInfo>();
   private _depth = 0;
+  private _searchComplete = false;
   private _blackToMove = false;
   private _multipv = 1;
   private _maxDepth = 20;
@@ -103,6 +106,7 @@ export class StockfishEngine {
   analyze(fen: string): void {
     this._infos.clear();
     this._depth = 0;
+    this._searchComplete = false;
     this._blackToMove = fen.split(' ')[1] === 'b';
     this._pendingFen = fen;
     this._notify();
@@ -157,6 +161,12 @@ export class StockfishEngine {
     }
     if (data.startsWith('bestmove')) {
       this._searching = false;
+      // If there's no queued search, mark current search complete and flush
+      // so subscribers know the engine is done (handles early termination).
+      if (this._pendingFen === null && !this._discardInfo) {
+        this._searchComplete = true;
+        this._notify();
+      }
       this._beginPendingSearch();
       return;
     }
@@ -191,6 +201,7 @@ export class StockfishEngine {
         }))
       : rawLines;
     const update: EngineUpdate = { depth: this._depth, lines };
+    if (this._searchComplete) update.searchComplete = true;
     for (const sub of this._subs) sub(update);
   }
 
